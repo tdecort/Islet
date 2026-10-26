@@ -279,7 +279,7 @@ struct AgentParsingTests {
 }
 
 struct AILineupTests {
-    let gemini = AgentState(name: "Gemini", finished: Date().addingTimeInterval(-600))
+    let gemini = AgentState(name: "Gemini", finished: Date().addingTimeInterval(-30))
     let oldCodex = AgentState(name: "Codex", finished: Date().addingTimeInterval(-3 * 86400))
 
     @Test func onlyGeminiInUseTakesClaudesPlace() {
@@ -296,6 +296,13 @@ struct AILineupTests {
 
     @Test func nothingInUseShowsClaudeAlone() {
         let l = AILineup.make(claudeOn: true, claudeWorking: false, claudeLastActive: nil, agents: [oldCodex])
+        #expect(l.claudeLeads)
+        #expect(l.others.isEmpty)
+    }
+
+    @Test func finishedOverAMinuteAgoLeavesOnlyClaude() {
+        let done = AgentState(name: "Antigravity", finished: Date().addingTimeInterval(-90))
+        let l = AILineup.make(claudeOn: true, claudeWorking: false, claudeLastActive: nil, agents: [done])
         #expect(l.claudeLeads)
         #expect(l.others.isEmpty)
     }

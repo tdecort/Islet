@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import CoreServices
 import SwiftUI
 
@@ -19,25 +20,36 @@ struct AgentState: Equatable {
     var limits: [Limit] = []
 }
 
-/// Which assistants the AI page shows, and which one leads it. An assistant counts as in
-/// use while it works and for 12 hours after. Claude leads whenever it is in use, or when
-/// nothing else is; otherwise the assistant in use takes its place.
+/// Which assistants the AI page shows, and which one leads it. Codex and Gemini show while
+/// they work and for a minute after; then only the main assistant stays. Claude leads
+/// whenever it was used in the last 12 hours, or when no other assistant is showing;
+/// otherwise the one at work takes its place.
 struct AILineup: Equatable {
     var claudeLeads: Bool
     /// Shown under Claude, or, when Claude doesn't lead, the first one leads.
     var others: [AgentState]
 
-    static let inUseFor: TimeInterval = 12 * 3600
+    static let claudeInUseFor: TimeInterval = 12 * 3600
+    static let othersLingerFor: TimeInterval = 60
 
     static func make(
         claudeOn: Bool, claudeWorking: Bool, claudeLastActive: Date?, agents: [AgentState], now: Date = Date()
     ) -> AILineup {
-        func recent(_ date: Date?) -> Bool { date.map { now.timeIntervalSince($0) < inUseFor } ?? false }
-        let used = agents.filter { $0.working || recent($0.finished ?? $0.started) }
+        func within(_ span: TimeInterval, _ date: Date?) -> Bool { date.map { now.timeIntervalSince($0) < span } ?? false }
+        let used = agents.filter { $0.working || within(othersLingerFor, $0.finished) }
             .sorted { $0.working && !$1.working }
-        let claudeUsed = claudeOn && (claudeWorking || recent(claudeLastActive))
+        let claudeUsed = claudeOn && (claudeWorking || within(claudeInUseFor, claudeLastActive))
         return AILineup(claudeLeads: claudeOn && (claudeUsed || used.isEmpty), others: used)
     }
+}
+
+/// Nothing is written when the minute after a finished run runs out, so ask the island to
+/// lay itself out again then, dropping the assistant from the AI page.
+func redrawWhenLingerEnds<M: ObservableObject>(_ state: AgentState, _ monitor: M) where M.ObjectWillChangePublisher == ObservableObjectPublisher {
+    guard !state.working, let finished = state.finished else { return }
+    let left = AILineup.othersLingerFor - Date().timeIntervalSince(finished)
+    guard left > 0 else { return }
+    DispatchQueue.main.asyncAfter(deadline: .now() + left + 0.5) { [weak monitor] in monitor?.objectWillChange.send() }
 }
 
 /// Calls back when anything changes under the watched folders (FSEvents, recursive).
@@ -124,7 +136,10 @@ final class CodexMonitor: ObservableObject {
         if let previous = state, previous.working, !next.working, let project = next.project ?? previous.project {
             onDone?("Codex", project)
         }
-        if next != state { state = next }
+        if next != state {
+            state = next
+            redrawWhenLingerEnds(next, self)
+        }
     }
 
     /// The most recently written rollout file. Sessions are filed by day (YYYY/MM/DD), so
@@ -257,7 +272,10 @@ final class GeminiMonitor: ObservableObject {
         if let previous = state, previous.working, !next.working, previous.name == next.name {
             onDone?(next.name, next.project ?? next.name)
         }
-        if next != state { state = next }
+        if next != state {
+            state = next
+            redrawWhenLingerEnds(next, self)
+        }
     }
 
     private static func modified(_ url: URL) -> Date {

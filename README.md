@@ -68,7 +68,7 @@ Working in another app? Islet tells you the moment Claude is done, or when it ne
 
 <img src="docs/images/07b-all-assistants.png" alt="Claude, Codex and Gemini on the same page">
 
-**Codex, Gemini and Antigravity, too.** Use more than one assistant? They line up together, each with what it's doing and for how long. Use only Gemini, and Gemini takes the stage. An assistant appears only when you actually use it.
+**Codex, Gemini and Antigravity, too.** Use more than one assistant? They line up together, each with what it's doing and for how long. Use only Gemini, and Gemini takes the stage. An assistant appears only while it works, and steps aside a minute after.
 
 ## Calls
 
