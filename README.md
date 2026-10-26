@@ -163,7 +163,7 @@ Hover the island and swipe with two fingers: music, AI, calendar, weather, timer
 <img src="docs/images/27-island-mode.png" width="49%" alt="Island mode on a display without a notch">
 <img src="docs/images/28-island-mode-player.png" width="49%" alt="The player in Island mode">
 
-On an external display, Islet becomes a floating island just below the menu bar, like on iPhone.
+On an external display, Islet becomes a floating island just below the menu bar, like on iPhone. With nothing to show, it fades away after a few seconds, and comes back the moment you point at it or something happens.
 
 ## Designed for macOS
 

@@ -198,6 +198,11 @@ final class IslandModel: ObservableObject {
     @Published private(set) var primaryIndex = 0
     @Published private(set) var hovering = false
     @Published private(set) var bumped = false
+    /// Island mode with nothing to show: after a moment the pill fades away instead of
+    /// leaving a black bar on screen. Hovering where it sits brings it back.
+    @Published private(set) var islandAsleep = false
+    private var sleepWork: DispatchWorkItem?
+    static let islandSleepDelay: TimeInterval = 3
     @Published private(set) var dropTargeting = false
     @Published private(set) var dropZone: DropZone?
     /// A shelf file is being dragged out: the island must stay open until it lands.
@@ -271,10 +276,12 @@ final class IslandModel: ObservableObject {
 
     // MARK: Geometry table
 
-    func target(for s: IslandState, includeHover: Bool = true) -> IslandGeometry {
+    func target(for s: IslandState, includeHover: Bool = true, awake: Bool = false) -> IslandGeometry {
         let n = notch
         var g: IslandGeometry
         switch s {
+        case .idle where detached && islandAsleep && !awake:
+            g = IslandGeometry(width: n.width * 0.5, height: 6, top: 0, bottom: 3)
         case .idle where showsCharging:
             let w = Self.chargingWings
             g = IslandGeometry(
@@ -402,7 +409,33 @@ final class IslandModel: ObservableObject {
 
     // MARK: Reconcile geometry
 
+    /// The idle pill's size even while asleep: where the pointer wakes it.
+    var wakeGeometry: IslandGeometry { target(for: .idle, includeHover: false, awake: true) }
+
+    /// Island mode only: put an empty island to sleep after a moment, wake it the instant
+    /// anything shows or the pointer comes near.
+    private func updateSleep() {
+        let empty = detached && state == .idle && !hovering && !bumped
+        guard empty else {
+            sleepWork?.cancel()
+            sleepWork = nil
+            if islandAsleep { islandAsleep = false }
+            return
+        }
+        guard !islandAsleep, sleepWork == nil else { return }
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.sleepWork = nil
+            guard self.detached, self.state == .idle, !self.hovering, !self.bumped else { return }
+            withAnimation(Motion.content) { self.islandAsleep = true }
+            self.reconcile(Motion.closeWidth)
+        }
+        sleepWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.islandSleepDelay, execute: work)
+    }
+
     private func reconcile(_ override: Animation? = nil) {
+        updateSleep()
         let t = target(for: state)
         let opening = t.height > height + 0.5 || t.width > width + 0.5
         let wAnim = override ?? (opening ? Motion.openWidth : Motion.closeWidth)
@@ -427,6 +460,7 @@ final class IslandModel: ObservableObject {
         self.notch = notch
         self.detached = detached
         self.topInset = topInset
+        updateSleep()
         let g = target(for: state)
         width = g.width; height = g.height; topRadius = g.top; bottomRadius = g.bottom; shadow = g.shadow; xOffset = g.offset
     }

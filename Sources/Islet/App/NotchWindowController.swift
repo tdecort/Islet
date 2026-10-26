@@ -253,7 +253,8 @@ final class NotchWindowController {
 
     private func islandRect(padding: CGFloat) -> NSRect {
         guard let screen else { return .zero }
-        let g = model.targetGeometry
+        // An island asleep still answers where it used to be.
+        let g = model.islandAsleep ? model.wakeGeometry : model.targetGeometry
         var w = g.width + 2 * g.top
         if model.secondaryActivity != nil { w += 2 * (model.notch.height + 8) }
         let top = screen.frame.maxY - model.topInset

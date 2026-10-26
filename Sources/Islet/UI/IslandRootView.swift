@@ -24,6 +24,8 @@ struct IslandRootView: View {
         .background(Color.black)
         .clipShape(shape)
         .shadow(color: .black.opacity(model.shadow), radius: 22, x: 0, y: 10)
+        .opacity(model.islandAsleep ? 0 : 1)
+        .animation(Motion.content, value: model.islandAsleep)
         .contentShape(shape)
         .onTapGesture { model.click() }
         .overlay(alignment: .topTrailing) {
