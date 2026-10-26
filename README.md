@@ -61,6 +61,9 @@ When Claude Code is working, a progress bubble appears right next to your music.
 
 Open it to see exactly what Claude is doing: thinking, running a command, editing a file. How long it has been at it. And where you stand on your session and weekly limits.
 
+> [!NOTE]
+> Usage limits work with **Claude Code in the terminal**, whose status line reports them after every reply. The Claude desktop app doesn't share them, so there you see what Claude is doing, without the limits.
+
 <img src="docs/images/06-claude-done.png" width="49%" alt="Claude is done">
 <img src="docs/images/07-claude-waiting.png" width="49%" alt="Claude is waiting for you">
 
@@ -199,7 +202,6 @@ That's it. Islet lives in your notch and your menu bar, never in the Dock. To st
 | **Bluetooth** | AirPods and other devices, with battery levels. |
 | **Automation** | What's playing in Music and Spotify. |
 | **Full Disk Access** | Focus and Do Not Disturb. Add Islet yourself in System Settings › Privacy & Security › Full Disk Access. |
-| **Keychain** *(Claude only)* | Your Claude usage limits. Choose **Always Allow**. |
 
 </details>
 
@@ -222,7 +224,7 @@ That's it. Islet lives in your notch and your menu bar, never in the Dock. To st
   ```
 
 - **After updating Islet, the old volume overlay is back.** Open **Settings › Permissions** and click **Allow…** next to Accessibility. A new version needs its permissions granted again.
-- **Claude's limits are missing.** They're live with Claude Code in the terminal. In the Claude app, they refresh after each reply.
+- **Claude's limits are missing.** They only work with Claude Code in the terminal. Run `claude` in Terminal, send a message, and they appear.
 
 </details>
 
