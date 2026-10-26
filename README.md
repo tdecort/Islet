@@ -6,7 +6,11 @@
 
 <p align="center">
   <strong>The Dynamic Island. Reimagined for the Mac.</strong><br>
-  Your music, your calls, Claude, your day and your system — alive in the notch.
+  Your music, your calls, Claude, your day and your system. Alive in the notch.
+</p>
+
+<p align="center">
+  <a href="https://github.com/tdecort/Islet/stargazers"><img src="https://img.shields.io/github/stars/tdecort/Islet?style=social" alt="Star Islet on GitHub"></a>
 </p>
 
 <p align="center">
@@ -28,7 +32,7 @@ Every expansion, every collapse and every transition is driven by spring physics
 
 <img src="docs/images/01-hover-bounce.png" alt="The island bounces when you hover it">
 
-Hover over the notch and the island swells, then settles back with a gentle bounce — just like tapping an empty Dynamic Island on iPhone. It is Islet's way of saying *nothing's going on right now*.
+Hover over the notch and the island swells, then settles back with a gentle bounce, just like tapping an empty Dynamic Island on iPhone. It is Islet's way of saying *nothing's going on right now*.
 
 Islet measures the real notch of your Mac every time it launches, so it fits a MacBook Air and a MacBook Pro alike.
 
@@ -42,7 +46,7 @@ Album art on one side of the camera, a live visualizer tinted with the artwork's
 
 Click to open a full player: scrub through the track, play, pause, skip, shuffle.
 
-- **Apple Music, Spotify and YouTube** in your browser — complete with the video's thumbnail.
+- **Apple Music, Spotify and YouTube** in your browser, complete with the video's thumbnail.
 - When Spotify and a video play at the same time, Spotify takes the lead.
 - Click the player to jump straight to the app that's playing.
 
@@ -50,11 +54,11 @@ Click to open a full player: scrub through the track, play, pause, skip, shuffle
 
 <img src="docs/images/04-claude-and-music.png" alt="Claude working in a bubble next to your music">
 
-When Claude Code is working, a progress bubble appears right next to whatever is already in your island — two live activities, side by side, just like on iPhone.
+When Claude Code is working, a progress bubble appears right next to whatever is already in your island. Two live activities, side by side, just like on iPhone.
 
 <img src="docs/images/05-claude-working.png" alt="What Claude is doing, for how long, and your usage limits">
 
-Open it to see exactly what Claude is doing — thinking, running a terminal command, editing a file — how long it has been at it, and where you stand on your session and weekly limits.
+Open it to see exactly what Claude is doing, whether it's thinking, running a terminal command or editing a file. You also see how long it has been at it, and where you stand on your session and weekly limits.
 
 <img src="docs/images/06-claude-done.png" width="49%" alt="Claude is done">
 <img src="docs/images/07-claude-waiting.png" width="49%" alt="Claude is waiting for you">
@@ -69,7 +73,7 @@ On a call in FaceTime, Zoom, Teams, WhatsApp, Discord, Slack or Skype, the durat
 
 <img src="docs/images/09-call-video.png" alt="The other person's video and call controls">
 
-Click to see the other person's video, with a real **Mute** button that silences your microphone — no hunting for the call window.
+Click to see the other person's video, with a real **Mute** button that silences your microphone. No hunting for the call window.
 
 <img src="docs/images/10-call-pinned.png" alt="Pinned call video">
 
@@ -93,7 +97,7 @@ Turn on a Focus and its symbol lights up in its own color. Turn it off and it fa
 
 <img src="docs/images/15-airpods.png" alt="AirPods connected, with battery level">
 
-Your AirPods connect, and the island shows it — battery level included.
+Your AirPods connect, and the island shows it, battery level included.
 
 <img src="docs/images/16-charging.png" width="49%" alt="Charging">
 <img src="docs/images/17-low-battery.png" width="49%" alt="Low battery">
@@ -139,7 +143,7 @@ Keep files on **the Shelf**, ready to drag back out whenever you need them. Or d
 
 <img src="docs/images/26-swipe-glance.png" alt="Swiping to the weather preview">
 
-Hover the island and swipe with two fingers: call, music, Claude, calendar, weather, timer and Shelf glide by in compact form. The island always takes exactly the space its content needs — nothing more.
+Hover the island and swipe with two fingers: call, music, Claude, calendar, weather, timer and Shelf glide by in compact form. The island always takes exactly the space its content needs. Nothing more.
 
 ## For Macs without a notch
 
@@ -190,12 +194,12 @@ This creates `build/Islet.app`. Move it to your Applications folder, then open i
 mv build/Islet.app /Applications/ && open /Applications/Islet.app
 ```
 
-Islet lives in your notch and in the menu bar — it never shows up in the Dock. To have it start with your Mac, turn on **Settings › General › Open at login**.
+Islet lives in your notch and in the menu bar. It never shows up in the Dock. To have it start with your Mac, turn on **Settings › General › Open at login**.
 
 ### First launch: permissions
 
 > [!IMPORTANT]
-> **Islet asks for several macOS permissions. Say yes to each of them — and whenever macOS offers *Always Allow*, choose *Always Allow*.**
+> **Islet asks for several macOS permissions. Say yes to each of them, and whenever macOS offers *Always Allow*, choose *Always Allow*.**
 >
 > Each permission unlocks one feature, and macOS asks for each one separately: no app can request them all at once. If you pick *Allow* instead of *Always Allow* where both are offered, macOS will keep asking you again and again.
 
@@ -204,7 +208,7 @@ Every permission, and why it's there:
 | Permission | What it unlocks | How macOS asks | What to do |
 |---|---|---|---|
 | **Accessibility** | Replaces the macOS volume and brightness overlay with Islet's, and keeps the call window visible so its video can appear in the island. | A dialog sends you to System Settings › Privacy & Security › Accessibility. | Turn **Islet** on. |
-| **Screen Recording** | Shows the other person's video from your call inside the island. Islet only ever captures the call window, and only while that video is showing in the island. | A dialog, then a switch in System Settings › Privacy & Security › Screen & System Audio Recording. | Turn **Islet** on, then quit and reopen Islet — macOS applies this one only after a relaunch. |
+| **Screen Recording** | Shows the other person's video from your call inside the island. Islet only ever captures the call window, and only while that video is showing in the island. | A dialog, then a switch in System Settings › Privacy & Security › Screen & System Audio Recording. | Turn **Islet** on, then quit and reopen Islet. macOS applies this one only after a relaunch. |
 | **Calendar** | Your upcoming events and the reminders before they start. | A dialog the first time you open the Calendar view. | **Allow Full Access**. |
 | **Location** | Local weather. Prefer not to share it? Type a city in Settings › Weather instead. | A dialog the first time you open the Weather view. | **Allow**. |
 | **Bluetooth** | AirPods and other device connections, with battery levels. | A dialog at first launch. | **Allow**. |
@@ -217,7 +221,7 @@ You can check and grant all of them in one place: **Settings › Permissions**. 
 <img src="docs/images/30-permissions.png" width="70%" alt="The Permissions page in Islet's settings">
 
 > [!NOTE]
-> Islet is built on your Mac rather than signed by a registered Apple developer. Because of that, when you rebuild Islet after an update, macOS may forget its Accessibility and Screen Recording permissions — even if Islet still looks enabled in System Settings. If the volume overlay appears twice, open **Settings › Permissions** and click **Allow…** next to Accessibility.
+> Islet is built on your Mac rather than signed by a registered Apple developer. Because of that, when you rebuild Islet after an update, macOS may forget its Accessibility and Screen Recording permissions, even if Islet still looks enabled in System Settings. If the volume overlay appears twice, open **Settings › Permissions** and click **Allow…** next to Accessibility.
 
 ### Connect Claude Code
 
@@ -260,3 +264,16 @@ Islet is written in Swift, SwiftUI and AppKit, with no third-party dependencies.
 scripts/test.sh                                              # run the test suite
 build/Islet.app/Contents/MacOS/Islet --marketing docs/images # regenerate the images in this README
 ```
+
+---
+
+<h2 align="center">⭐ Love Islet? Give it a star.</h2>
+
+<p align="center">
+  If Islet made your notch worth looking at, a star takes one click.<br>
+  It helps more Mac users discover Islet, and it tells us what to build next.
+</p>
+
+<p align="center">
+  <a href="https://github.com/tdecort/Islet/stargazers"><img src="https://img.shields.io/github/stars/tdecort/Islet?style=for-the-badge&logo=github&label=Star%20Islet&color=f5a623" alt="Star Islet on GitHub"></a>
+</p>
