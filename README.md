@@ -172,7 +172,13 @@ xcode-select --install
 
 ### Build and install
 
-From the root of this repository:
+Get the code:
+
+```bash
+git clone https://github.com/tdecort/Islet.git && cd Islet
+```
+
+Build the app:
 
 ```bash
 scripts/build-app.sh
