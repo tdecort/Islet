@@ -110,7 +110,11 @@ final class ClaudeMonitor: ObservableObject {
     /// endpoint is left alone.
     private var lastStatusLine = Date.distantPast
     /// Earliest moment the usage endpoint may be called again (rate-limit backoff).
-    private var notBefore = Date.distantPast
+    /// Earliest moment the usage endpoint may be called again. Persisted, so relaunching
+    /// Islet never calls an endpoint that asked it to wait.
+    private var notBefore = Date(timeIntervalSince1970: UserDefaults.standard.double(forKey: "claudeUsageNotBefore")) {
+        didSet { UserDefaults.standard.set(notBefore.timeIntervalSince1970, forKey: "claudeUsageNotBefore") }
+    }
     private var backoff: TimeInterval = 0
     private static let cacheKey = "claudeUsageCache"
     private static let cacheDateKey = "claudeUsageFetched"
@@ -122,6 +126,15 @@ final class ClaudeMonitor: ObservableObject {
     private let io = DispatchQueue(label: "islet.claude", qos: .utility)
 
     var workingProject: String? { sessions.values.filter(\.working).max { $0.updated < $1.updated }?.project }
+
+    /// When Claude Code last reported anything, kept across launches: it decides whether
+    /// Claude counts as in use next to the other assistants.
+    private(set) var lastActive: Date? = {
+        let t = UserDefaults.standard.double(forKey: "claudeLastActive")
+        return t > 0 ? Date(timeIntervalSince1970: t) : nil
+    }() {
+        didSet { UserDefaults.standard.set(lastActive?.timeIntervalSince1970 ?? 0, forKey: "claudeLastActive") }
+    }
 
     /// The session worth showing: the most recent working one, else the most recent.
     var current: Session? {
@@ -167,9 +180,13 @@ final class ClaudeMonitor: ObservableObject {
         let wanted = Prefs.bool(Prefs.claudeEnabled) && Prefs.bool(Prefs.claudeUsage)
         if wanted, refreshTimer == nil {
             loadCachedUsage()
-            refreshUsage(force: false, minInterval: 890)
+            refreshUsage(force: false, minInterval: 290)
             // Rate limits move slowly; 5 minutes is plenty, and the endpoint is rate limited.
-            let t = Timer(timeInterval: 900, repeats: true) { [weak self] _ in self?.refreshUsage(force: false, minInterval: 890) }
+            // Every 10 minutes, but only while Claude has been used in the last hour.
+            let t = Timer(timeInterval: 600, repeats: true) { [weak self] _ in
+                guard let self, self.sessions.values.contains(where: { Date().timeIntervalSince($0.updated) < 3600 }) else { return }
+                self.refreshUsage(force: false, minInterval: 590)
+            }
             t.tolerance = 60
             RunLoop.main.add(t, forMode: .common)
             refreshTimer = t
@@ -214,6 +231,7 @@ final class ClaudeMonitor: ObservableObject {
             var s = sessions[id] ?? Session(project: project, working: false, waiting: false, updated: Date())
             s.project = project
             s.updated = Date()
+            lastActive = s.updated
             switch event {
             case "UserPromptSubmit":
                 s.working = true; s.waiting = false
@@ -236,7 +254,7 @@ final class ClaudeMonitor: ObservableObject {
                 lastDone = (project, Date())
                 if shouldAnnounce { announce(.claudeDone(project: project)) }
                 // A finished answer is the best moment to check the limits.
-                DispatchQueue.main.asyncAfter(deadline: .now() + 5) { self.refreshUsage(force: false, minInterval: 900) }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 5) { self.refreshUsage(force: false, minInterval: 120) }
             case "Notification":
                 s.waiting = true
                 let message = info["message"] ?? "Claude is waiting for you"
@@ -286,7 +304,11 @@ final class ClaudeMonitor: ObservableObject {
     }
 
     func refreshUsage(force: Bool, minInterval: TimeInterval = 120, reloadToken: Bool = false) {
-        guard Prefs.bool(Prefs.claudeEnabled), Prefs.bool(Prefs.claudeUsage), !keychainBlocked, Date() >= notBefore else { return }
+        guard Prefs.bool(Prefs.claudeEnabled), Prefs.bool(Prefs.claudeUsage), !keychainBlocked else { return }
+        guard Date() >= notBefore else {
+            if session == nil { usageStatus = .failed("Anthropic asked to wait until \(Format.time.string(from: notBefore))") }
+            return
+        }
         // Fallback only: the status line already delivers fresh limits for free.
         guard Date().timeIntervalSince(lastStatusLine) > 900 else { return }
         guard force || Date().timeIntervalSince(lastFetch) > minInterval else { return }
@@ -322,12 +344,13 @@ final class ClaudeMonitor: ObservableObject {
     }
 
     private func applyUsage(data: Data?, status: Int, retried: Bool, retryAfter: TimeInterval?) {
+        claudeLog.notice("usage endpoint answered \(status, privacy: .public), retry-after \(retryAfter ?? -1, privacy: .public)")
         if status == 429 {
             // Back off: honour Retry-After, else 5, 10, 20… up to 30 minutes. Keep showing
             // the last known values meanwhile instead of an error.
             backoff = max(retryAfter ?? 0, backoff == 0 ? 300 : min(backoff * 2, 1800))
             notBefore = Date().addingTimeInterval(backoff)
-            if session == nil { usageStatus = .failed("Too many requests, retrying in \(Int(backoff / 60)) min") }
+            if session == nil { usageStatus = .failed("Anthropic asked to wait until \(Format.time.string(from: notBefore))") }
             return
         }
         if status == 401 || status == 403 {

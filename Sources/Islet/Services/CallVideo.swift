@@ -11,7 +11,7 @@ import ScreenCaptureKit
 final class CallVideo: NSObject, ObservableObject, SCStreamOutput, SCStreamDelegate {
     static let shared = CallVideo()
 
-    enum Status: Equatable { case idle, needsPermission, noWindow, live }
+    enum Status: Equatable { case idle, needsPermission, needsRelaunch, noWindow, live }
 
     @Published private(set) var status: Status = .idle
 
@@ -35,13 +35,19 @@ final class CallVideo: NSObject, ObservableObject, SCStreamOutput, SCStreamDeleg
         if users == 0 { stop() }
     }
 
+    /// Asks macOS for Screen Recording. macOS only applies the grant to a fresh process,
+    /// so the tile then offers to restart Islet.
     func requestPermission() {
-        CGRequestScreenCaptureAccess()
-        // The grant only applies to new streams; retry shortly after the prompt.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
-            guard let self, self.users > 0 else { return }
-            self.stop()
-            self.start()
+        _ = CGRequestScreenCaptureAccess()
+        status = .needsRelaunch
+    }
+
+    /// Relaunch Islet so a newly granted Screen Recording permission takes effect.
+    static func relaunch() {
+        let config = NSWorkspace.OpenConfiguration()
+        config.createsNewApplicationInstance = true
+        NSWorkspace.shared.openApplication(at: Bundle.main.bundleURL, configuration: config) { _, _ in
+            DispatchQueue.main.async { NSApp.terminate(nil) }
         }
     }
 
@@ -56,7 +62,8 @@ final class CallVideo: NSObject, ObservableObject, SCStreamOutput, SCStreamDeleg
 
     private func start() {
         guard stream == nil, !starting else { return }
-        guard CGPreflightScreenCaptureAccess() else { status = .needsPermission; return }
+        // No CGPreflightScreenCaptureAccess() gate: its answer is frozen for the life of the
+        // process, so it keeps saying "denied" after the user grants access. Just try.
         guard let bundleID = CallMonitor.shared.app?.bundleID else { status = .noWindow; return }
         starting = true
         Task { [weak self] in
@@ -98,7 +105,13 @@ final class CallVideo: NSObject, ObservableObject, SCStreamOutput, SCStreamDeleg
             } catch {
                 await MainActor.run {
                     self.starting = false
-                    self.status = CGPreflightScreenCaptureAccess() ? .noWindow : .needsPermission
+                    let declined = (error as NSError).code == SCStreamError.Code.userDeclined.rawValue
+                    if declined {
+                        // Already asked in this run: only a restart can pick the grant up.
+                        self.status = self.status == .needsRelaunch ? .needsRelaunch : .needsPermission
+                    } else {
+                        self.status = .noWindow
+                    }
                 }
             }
         }

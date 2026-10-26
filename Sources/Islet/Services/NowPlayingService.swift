@@ -76,6 +76,8 @@ final class NowPlayingService: ObservableObject {
     @Published private(set) var hasActivity = false
 
     private var position: Double = 0
+    private var pausedSince: Date?
+    private var pauseWork: DispatchWorkItem?
     private let bridge = MediaRemoteBridge()
     /// The app behind the web source (Firefox, Safari, Chrome…).
     private var webBundleID: String?
@@ -140,7 +142,7 @@ final class NowPlayingService: ObservableObject {
         position = elapsed
         positionDate = Date()
         shuffle = false
-        if !hasActivity { hasActivity = true }
+        markActivity(playing: playing)
         if let b64 = p["artwork"] as? String, let data = Data(base64Encoded: b64), let image = NSImage(data: data) {
             artworkKey = "web|\(t.title)|\(t.artist)"
             withAnimation(Motion.content) {
@@ -252,7 +254,7 @@ final class NowPlayingService: ObservableObject {
         position = d.atIndex(5)?.doubleValue ?? 0
         positionDate = Date()
         shuffle = d.atIndex(7)?.booleanValue ?? false
-        if !hasActivity { hasActivity = true }
+        markActivity(playing: playing)
 
         let key = "\(src.rawValue)|\(t.title)|\(t.artist)|\(t.album)"
         if key != artworkKey {
@@ -269,8 +271,40 @@ final class NowPlayingService: ObservableObject {
         }
     }
 
+    /// Playing music is a live activity; paused for more than 5 seconds, it leaves the
+    /// folded island (the player stays one swipe away until the track is cleared).
+    private func markActivity(playing: Bool) {
+        if playing {
+            pausedSince = nil
+            pauseWork?.cancel()
+            if !hasActivity { hasActivity = true }
+            return
+        }
+        let since = pausedSince ?? Date()
+        pausedSince = since
+        let left = Self.pauseGrace - Date().timeIntervalSince(since)
+        guard left > 0 else {
+            if hasActivity { hasActivity = false }
+            return
+        }
+        if !hasActivity { hasActivity = true }
+        guard pauseWork == nil else { return }
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.pauseWork = nil
+            if !self.isPlaying, self.hasActivity { self.hasActivity = false }
+        }
+        pauseWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + left, execute: work)
+    }
+
+    static let pauseGrace: TimeInterval = 5
+
     private func clear() {
         idleWork?.cancel()
+        pauseWork?.cancel()
+        pauseWork = nil
+        pausedSince = nil
         track = nil
         isPlaying = false
         artwork = nil

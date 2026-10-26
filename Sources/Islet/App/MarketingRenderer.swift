@@ -66,8 +66,20 @@ enum MarketingRenderer {
             model.preview(transient: .notice(Notice(kind: .claudeWaiting(project: "Islet", message: "Claude is waiting for you"))))
         }
 
+        shot("07b-all-assistants") {
+            UserDefaults.standard.set(true, forKey: Prefs.aiCodex)
+            UserDefaults.standard.set(true, forKey: Prefs.aiGemini)
+            services.claude.loadPreview(working: true)
+            services.codex.loadPreview(AgentState(
+                name: "Codex", project: "website", working: true, activity: "Editing", started: Date().addingTimeInterval(-95),
+                limits: [.init(label: "Week", utilization: 38, resetsAt: Date().addingTimeInterval(4 * 86400))]))
+            services.gemini.loadPreview(AgentState(name: "Gemini", project: "api", finished: Date().addingTimeInterval(-300)))
+            model.preview(expanded: .claude)
+        }
+
         // Calls
         shot("08-call-compact") {
+            for key in [Prefs.aiCodex, Prefs.aiGemini] { UserDefaults.standard.removeObject(forKey: key) }
             services.claude.loadPreview(working: false, limits: false)
             services.call.loadPreview(camera: true, muted: false)
             model.preview()
@@ -98,6 +110,19 @@ enum MarketingRenderer {
                     Notice(kind: .deviceConnected(name: "AirPods Pro", symbol: "airpodspro", battery: DeviceBattery(left: 92, right: 88, caseLevel: 70)))))
         }
         shot("16-charging") { model.preview(transient: .notice(Notice(kind: .charging(82)))) }
+        // Paused music has left the folded island: only the charging bolt stays.
+        UserDefaults.standard.set(false, forKey: Prefs.nowPlayingEnabled)
+        shot("16b-charging-idle") {
+            services.claude.loadPreview(working: false, limits: false)
+            services.battery.loadPreview(percent: 64, charging: true)
+            model.preview()
+        }
+        shot("16c-charging-and-claude") {
+            services.claude.loadPreview(working: true, limits: false)
+            model.preview()
+        }
+        services.battery.loadPreview(percent: 82, charging: false)
+        UserDefaults.standard.removeObject(forKey: Prefs.nowPlayingEnabled)
         shot("17-low-battery") { model.preview(transient: .notice(Notice(kind: .lowBattery(18)))) }
         shot("18-unlock") { model.preview(transient: .notice(Notice(kind: .unlocked))) }
 
@@ -168,7 +193,9 @@ enum MarketingRenderer {
         }
 
         services.shelf.clear()
-        for key in [Prefs.claudeUsage, Prefs.callEnabled] { UserDefaults.standard.removeObject(forKey: key) }
+        for key in [Prefs.claudeUsage, Prefs.callEnabled, Prefs.aiCodex, Prefs.aiGemini] {
+            UserDefaults.standard.removeObject(forKey: key)
+        }
     }
 
     // MARK: Demo content (fictional)

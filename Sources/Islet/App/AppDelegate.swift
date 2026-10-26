@@ -27,6 +27,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.services.prefsChanged()
             }
             .store(in: &bag)
+
+        // First launch: straight to the one page that turns every feature on.
+        if !UserDefaults.standard.bool(forKey: "welcomed") {
+            UserDefaults.standard.set(true, forKey: "welcomed")
+            showSettings(pane: .permissions)
+        }
     }
 
     // MARK: Menu bar
@@ -38,7 +44,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             item.button?.image = NSImage(systemSymbolName: "capsule.fill", accessibilityDescription: "Islet")
             item.button?.image?.size = NSSize(width: 18, height: 9)
             let menu = NSMenu()
-            menu.addItem(withTitle: "Islet Settings…", action: #selector(showSettings), keyEquivalent: ",").target = self
+            menu.addItem(withTitle: "Islet Settings…", action: #selector(showSettings as () -> Void), keyEquivalent: ",").target = self
             menu.addItem(.separator())
             menu.addItem(withTitle: "Quit Islet", action: #selector(quit), keyEquivalent: "q").target = self
             item.menu = menu
@@ -49,7 +55,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    @objc func showSettings() {
+    @objc func showSettings() { showSettings(pane: .general) }
+
+    func showSettings(pane: SettingsPane) {
         if settingsWindow == nil {
             let window = NSWindow(
                 contentRect: NSRect(x: 0, y: 0, width: 760, height: 560),
@@ -62,7 +70,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             window.isReleasedWhenClosed = false
             window.contentMinSize = NSSize(width: 680, height: 460)
             window.title = "Islet"
-            window.contentViewController = NSHostingController(rootView: SettingsView(services: services))
+            window.contentViewController = NSHostingController(rootView: SettingsView(services: services, pane: pane))
             window.center()
             settingsWindow = window
         }

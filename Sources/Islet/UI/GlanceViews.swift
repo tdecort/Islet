@@ -15,7 +15,17 @@ struct GlanceView: View {
         case .nowPlaying:
             NowPlayingGlance(np: s.nowPlaying, notch: n)
         case .claude:
-            ClaudeGlance(claude: s.claude, notch: n)
+            if model.aiWorking {
+                AICompact(claude: s.claude, codex: s.codex, gemini: s.gemini, notch: n, hovering: false)
+            } else if model.aiLineup.claudeLeads {
+                ClaudeGlance(claude: s.claude, notch: n)
+            } else {
+                Wings(notch: n, inset: 6) {
+                    AgentGlyph(name: model.aiLineup.others.first?.name ?? (Prefs.bool(Prefs.aiCodex) ? "Codex" : "Gemini"), size: 14)
+                } trailing: {
+                    GlanceText(text: model.aiGlanceText, tint: .white.opacity(0.6))
+                }
+            }
         case .flow:
             FlowCompact(flow: s.flow, notch: n)
         case .calendar:

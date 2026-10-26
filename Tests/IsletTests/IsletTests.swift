@@ -184,3 +184,119 @@ import Testing
         #expect(w.pace == .limit)
     }
 }
+
+struct AgentParsingTests {
+    private func line(_ type: String, _ payload: [String: Any], at date: Date = Date()) -> String {
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let obj: [String: Any] = ["timestamp": iso.string(from: date), "type": type, "payload": payload]
+        return String(data: try! JSONSerialization.data(withJSONObject: obj), encoding: .utf8)!
+    }
+
+    @Test func codexWorkingWithTool() {
+        let text = [
+            line("session_meta", ["cwd": "/Users/me/Code/Islet"]),
+            line("event_msg", ["type": "task_started"]),
+            line("response_item", ["type": "function_call", "name": "exec_command", "arguments": #"{"cmd":"swift build"}"#]),
+        ].joined(separator: "\n")
+        let s = CodexMonitor.parse(text, modified: Date(), previous: nil)
+        #expect(s.working)
+        #expect(s.project == "Islet")
+        #expect(s.activity == "Terminal · swift build")
+    }
+
+    @Test func codexDoneAfterTaskComplete() {
+        let text = [
+            line("event_msg", ["type": "task_started"], at: Date().addingTimeInterval(-60)),
+            line("event_msg", ["type": "task_complete"]),
+        ].joined(separator: "\n")
+        let s = CodexMonitor.parse(text, modified: Date(), previous: nil)
+        #expect(!s.working)
+        #expect(s.finished != nil)
+        #expect(s.activity == nil)
+    }
+
+    @Test func codexLimitsSkipWindowsThatReset() {
+        let future = Date().addingTimeInterval(3600).timeIntervalSince1970
+        let limits: [String: Any] = [
+            "primary": ["used_percent": 42.0, "window_minutes": 300, "resets_at": future],
+            "secondary": ["used_percent": 90.0, "window_minutes": 10080, "resets_at": 1_000_000],
+        ]
+        let parsed = CodexMonitor.parseLimits(limits)
+        #expect(parsed.count == 1)
+        #expect(parsed.first?.label == "Session")
+        #expect(parsed.first?.utilization == 42)
+    }
+
+    @Test func antigravityWorkingWhileAToolRuns() {
+        let text = [
+            #"{"step_index":1,"type":"USER_INPUT","status":"DONE","created_at":"2026-10-26T14:57:26Z"}"#,
+            #"{"step_index":2,"type":"PLANNER_RESPONSE","status":"DONE","created_at":"2026-10-26T14:57:28Z","tool_calls":[{"name":"run_command","args":{"CommandLine":"\"swift build\"","toolSummary":"\"Build the app\""}}]}"#,
+            #"{"step_index":3,"type":"RUN_COMMAND","status":"RUNNING","created_at":"2026-10-26T14:57:29Z"}"#,
+            #"{"step_index":4,"type":"EPHEMERAL_MESSAGE","status":"DONE","created_at":"2026-10-26T14:57:30Z"}"#,
+        ].joined(separator: "\n")
+        let s = GeminiMonitor.parseTranscript(text, title: "Islet", modified: Date())
+        #expect(s.working)
+        #expect(s.activity == "Build the app")
+        #expect(s.project == "Islet")
+        #expect(s.started != nil)
+    }
+
+    @Test func antigravityDoneAfterFinalAnswer() {
+        let text = [
+            #"{"step_index":1,"type":"USER_INPUT","status":"DONE","created_at":"2026-10-26T14:57:26Z"}"#,
+            #"{"step_index":2,"type":"PLANNER_RESPONSE","status":"DONE","created_at":"2026-10-26T14:57:28Z","content":"Hi!"}"#,
+        ].joined(separator: "\n")
+        let s = GeminiMonitor.parseTranscript(text, title: nil, modified: Date())
+        #expect(!s.working)
+        #expect(s.finished != nil)
+        #expect(GeminiMonitor.annotationTitle(#"title:"Sharing A Built App Easily" last_user_view_time:{seconds:1}"#) == "Sharing A Built App Easily")
+    }
+
+    @Test func geminiThinkingUntilItAnswers() throws {
+        let asked = try JSONSerialization.data(withJSONObject: ["messages": [["type": "user", "content": "hi"]]])
+        #expect(GeminiMonitor.parseChat(asked, project: "x", modified: Date())?.working == true)
+        let answered = try JSONSerialization.data(withJSONObject: [
+            "messages": [["type": "user", "content": "hi"], ["type": "gemini", "content": "hello"]],
+        ])
+        #expect(GeminiMonitor.parseChat(answered, project: "x", modified: Date())?.working == false)
+    }
+}
+
+@Suite(.serialized) struct PageOrderTests {
+    @Test func savedOrderAndHiddenPagesApply() {
+        let d = UserDefaults.standard
+        Prefs.register()
+        defer { d.removeObject(forKey: Prefs.pageOrder); d.removeObject(forKey: Prefs.hiddenPages) }
+        d.set("weather,calendar", forKey: Prefs.pageOrder)
+        d.set("shelf", forKey: Prefs.hiddenPages)
+        let pages = Page.enabled
+        #expect(Array(pages.prefix(2)) == [.weather, .calendar])
+        #expect(!pages.contains(.shelf))
+        // The page of an open live activity stays reachable even when hidden.
+        #expect(Page.enabled(including: .shelf).contains(.shelf))
+    }
+}
+
+struct AILineupTests {
+    let gemini = AgentState(name: "Gemini", finished: Date().addingTimeInterval(-600))
+    let oldCodex = AgentState(name: "Codex", finished: Date().addingTimeInterval(-3 * 86400))
+
+    @Test func onlyGeminiInUseTakesClaudesPlace() {
+        let l = AILineup.make(claudeOn: true, claudeWorking: false, claudeLastActive: nil, agents: [gemini, oldCodex])
+        #expect(!l.claudeLeads)
+        #expect(l.others.map(\.name) == ["Gemini"])
+    }
+
+    @Test func claudeInUseLeadsWithGeminiBelow() {
+        let l = AILineup.make(claudeOn: true, claudeWorking: false, claudeLastActive: Date().addingTimeInterval(-60), agents: [gemini])
+        #expect(l.claudeLeads)
+        #expect(l.others.map(\.name) == ["Gemini"])
+    }
+
+    @Test func nothingInUseShowsClaudeAlone() {
+        let l = AILineup.make(claudeOn: true, claudeWorking: false, claudeLastActive: nil, agents: [oldCodex])
+        #expect(l.claudeLeads)
+        #expect(l.others.isEmpty)
+    }
+}

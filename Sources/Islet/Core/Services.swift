@@ -14,6 +14,8 @@ final class Services {
     let flow = FlowTimer()
     let shelf = ShelfStore()
     let claude = ClaudeMonitor()
+    let codex = CodexMonitor()
+    let gemini = GeminiMonitor()
     let call = CallMonitor.shared
     let session = SessionMonitor()
 
@@ -34,6 +36,9 @@ final class Services {
         flow.onNotice = notify
         shelf.onNotice = notify
         claude.onNotice = notify
+        let agentDone: (String, String) -> Void = { name, project in notify(.agentDone(name: name, project: project)) }
+        codex.onDone = agentDone
+        gemini.onDone = agentDone
         session.onUnlock = { if Prefs.bool(Prefs.unlockAnimation) { notify(.unlocked) } }
 
         audio.start()
@@ -44,6 +49,8 @@ final class Services {
         focus.start()
         calendar.startIfAuthorized()
         claude.start()
+        codex.sync()
+        gemini.sync()
         call.start()
         session.start()
     }
@@ -51,6 +58,8 @@ final class Services {
     func prefsChanged() {
         hud.syncTap()
         claude.prefsChanged()
+        codex.sync()
+        gemini.sync()
     }
 
     /// Lazily wake services that cost something (permissions, network) the first

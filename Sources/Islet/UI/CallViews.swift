@@ -171,6 +171,19 @@ struct CallVideoTile: View {
                     }
                     .buttonStyle(PressableStyle())
                 }
+            case .needsRelaunch:
+                VStack(spacing: 5) {
+                    Text("Turn on Islet in Screen Recording,\nthen restart it.")
+                        .font(.island(10.5)).foregroundStyle(.white.opacity(0.55)).multilineTextAlignment(.center)
+                    Button {
+                        CallVideo.relaunch()
+                    } label: {
+                        Text("Restart Islet").font(.island(11, .semibold)).foregroundStyle(.white)
+                            .padding(.horizontal, 10).padding(.vertical, 5)
+                            .background(Capsule().fill(.white.opacity(0.14)))
+                    }
+                    .buttonStyle(PressableStyle())
+                }
             case .noWindow:
                 VStack(spacing: 4) {
                     Image(systemName: "video.slash.fill").font(.island(15)).foregroundStyle(.white.opacity(0.4))

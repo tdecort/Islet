@@ -18,6 +18,18 @@ enum Page: String, CaseIterable, Identifiable {
         }
     }
 
+    var title: String {
+        switch self {
+        case .nowPlaying: return "Now Playing"
+        case .claude: return "AI Assistants"
+        case .calendar: return "Calendar"
+        case .weather: return "Weather"
+        case .flow: return "Timer"
+        case .shelf: return "Shelf"
+        case .call: return "Calls"
+        }
+    }
+
     var enabledKey: String {
         switch self {
         case .nowPlaying: return Prefs.nowPlayingEnabled
@@ -30,10 +42,34 @@ enum Page: String, CaseIterable, Identifiable {
         }
     }
 
-    static var enabled: [Page] {
-        // The call page only exists while a call is going on.
-        allCases.filter { Prefs.bool($0.enabledKey) && ($0 != .call || CallMonitor.shared.isActive) }
+    /// Whether the feature behind the page is on. The AI page stands for every assistant.
+    var isOn: Bool {
+        self == .claude ? Self.aiKeys.contains { Prefs.bool($0) } : Prefs.bool(enabledKey)
     }
+
+    static let aiKeys = [Prefs.claudeEnabled, Prefs.aiCodex, Prefs.aiGemini]
+
+    /// Every page in the order chosen in Settings, those missing from the saved order last.
+    static var ordered: [Page] {
+        let saved = Prefs.string(Prefs.pageOrder).split(separator: ",").compactMap { Page(rawValue: String($0)) }
+        return saved + allCases.filter { !saved.contains($0) }
+    }
+
+    static var hidden: Set<Page> {
+        Set(Prefs.string(Prefs.hiddenPages).split(separator: ",").compactMap { Page(rawValue: String($0)) })
+    }
+
+    /// The pages swiping goes through. A hidden page keeps its live activity, and still
+    /// shows while that activity is open (`including`).
+    static func enabled(including current: Page? = nil) -> [Page] {
+        let hidden = hidden
+        // The call page only exists while a call is going on.
+        return ordered.filter {
+            $0 == current || ($0.isOn && !hidden.contains($0) && ($0 != .call || CallMonitor.shared.isActive))
+        }
+    }
+
+    static var enabled: [Page] { enabled() }
 }
 
 enum Activity: String, Equatable {
@@ -71,6 +107,7 @@ enum NoticeKind: Equatable {
     case flowPhase(FlowTimer.Phase)
     case shelfAdded(Int)
     case claudeDone(project: String)
+    case agentDone(name: String, project: String)
     case claudeWaiting(project: String, message: String)
     case claudeUsage(percent: Int, window: String)
 
@@ -78,7 +115,7 @@ enum NoticeKind: Equatable {
         switch self {
         case .unlocked: return 1.5
         case .deviceConnected, .event, .claudeWaiting: return 4
-        case .claudeDone, .claudeUsage: return 3.5
+        case .claudeDone, .agentDone, .claudeUsage: return 3.5
         // Stays up while the timer rings; touching the island silences it.
         case .flowPhase: return Prefs.bool(Prefs.flowSound) ? 30 : 2.8
         default: return 2.8
@@ -91,7 +128,7 @@ enum NoticeKind: Equatable {
         case .event: return .calendar
         case .flowPhase: return .flow
         case .shelfAdded: return .shelf
-        case .claudeDone, .claudeWaiting, .claudeUsage: return .claude
+        case .claudeDone, .agentDone, .claudeWaiting, .claudeUsage: return .claude
         default: return nil
         }
     }
@@ -163,6 +200,8 @@ final class IslandModel: ObservableObject {
     @Published private(set) var bumped = false
     @Published private(set) var dropTargeting = false
     @Published private(set) var dropZone: DropZone?
+    /// A shelf file is being dragged out: the island must stay open until it lands.
+    private(set) var draggingOut = false
     @Published private(set) var pageForward = true
     /// The call video stays in the island, collapsed, whatever the user does elsewhere.
     @Published private(set) var videoPinned = false
@@ -201,6 +240,16 @@ final class IslandModel: ObservableObject {
         return .idle
     }
 
+    /// The Mac is plugged in (charging or already full): a bolt stays on the left of the
+    /// folded island, alone or in place of the assistant's mark next to its spinner.
+    /// Macs without a battery are always on power, so they never show it.
+    var showsCharging: Bool {
+        let b = services.battery
+        return b.hasBattery && (b.onAC || b.charging) && Prefs.bool(Prefs.chargingInNotch)
+    }
+
+    static let chargingWings = WingWidths(leading: 34, trailing: 16)
+
     var primaryActivity: Activity? {
         activities.isEmpty ? nil : activities[primaryIndex % activities.count]
     }
@@ -226,6 +275,10 @@ final class IslandModel: ObservableObject {
         let n = notch
         var g: IslandGeometry
         switch s {
+        case .idle where showsCharging:
+            let w = Self.chargingWings
+            g = IslandGeometry(
+                width: n.width + w.leading + w.trailing, height: n.height, top: 6, bottom: 12, offset: (w.trailing - w.leading) / 2)
         case .idle:
             g =
                 detached
@@ -263,7 +316,7 @@ final class IslandModel: ObservableObject {
             g.shadow = max(g.shadow, 0.3)
         }
         guard includeHover else { return g }
-        if bumped, case .idle = s {
+        if bumped, case .idle = s, !showsCharging {
             g = IslandGeometry(
                 width: n.width + (detached ? 56 : 30), height: n.height + (detached ? 5 : 7),
                 top: detached ? 0 : 6, bottom: detached ? 18 : 15, shadow: detached ? 0.3 : 0)
@@ -297,7 +350,7 @@ final class IslandModel: ObservableObject {
         case .unlocked: return wings(34)
         case .flowPhase: return wings(96)
         case .shelfAdded: return wings(60)
-        case .claudeDone: return card(112, 46)
+        case .claudeDone, .agentDone: return card(112, 46)
         case .claudeWaiting: return card(124, 52)
         case .claudeUsage: return card(108, 46)
         }
@@ -323,11 +376,16 @@ final class IslandModel: ObservableObject {
     /// growing a row per known limit (and a little wider, for the reset times).
     private func claudePageGeometry(notch n: CGSize) -> IslandGeometry {
         let c = services.claude
-        let limitRows = [c.session, c.weekly].compactMap { $0 }.count
-        let width = limitRows == 0 ? Self.minimumPageWidth(notch: n) : Self.pageWidth(.claude, notch: n)
-        // 96 pt for the header and status line; each limit row is 23 pt plus its spacing.
+        let lineup = aiLineup
+        let limitRows = lineup.claudeLeads ? [c.session, c.weekly].compactMap { $0 }.count : 0
+        // With Claude off, the first other assistant takes the main line.
+        let others = lineup.claudeLeads ? lineup.others.count : max(0, lineup.others.count - 1)
+        let narrow = limitRows == 0 && others == 0
+        let width = narrow ? Self.minimumPageWidth(notch: n) : Self.pageWidth(.claude, notch: n)
+        // 96 pt for the header and status line; each limit row is 23 pt plus its spacing,
+        // each other assistant a 34 pt line.
         let rows = CGFloat(limitRows)
-        let height = 96 + (limitRows == 0 ? 0 : 12 + rows * 23 + (rows - 1) * 8)
+        let height = 96 + (limitRows == 0 ? 0 : 12 + rows * 23 + (rows - 1) * 8) + CGFloat(others) * 34
         return IslandGeometry(width: width, height: height, top: 12, bottom: 28, shadow: 0.5)
     }
 
@@ -379,7 +437,16 @@ final class IslandModel: ObservableObject {
         let np = services.nowPlaying
         let flow = services.flow
         let claude = services.claude
-        Publishers.CombineLatest4(np.$hasActivity, flow.$isActive, claude.$isWorking, services.call.$isActive)
+        let ai = Publishers.CombineLatest3(claude.$isWorking, services.codex.$state, services.gemini.$state)
+            .map { c, x, g in c || x?.working == true || g?.working == true }
+        let battery = services.battery
+        Publishers.CombineLatest3(battery.$hasBattery, battery.$onAC, battery.$charging)
+            .map { $0 && ($1 || $2) }
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in DispatchQueue.main.async { self?.mutate {} } }
+            .store(in: &bag)
+        Publishers.CombineLatest4(np.$hasActivity, flow.$isActive, ai, services.call.$isActive)
             .removeDuplicates { $0 == $1 }
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in self?.refreshActivities() }
@@ -392,6 +459,8 @@ final class IslandModel: ObservableObject {
             services.call.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
             services.nowPlaying.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
             services.claude.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
+            services.codex.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
+            services.gemini.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
             services.calendar.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
             services.weather.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
             services.shelf.objectWillChange.map { _ in () }.eraseToAnyPublisher()
@@ -401,11 +470,26 @@ final class IslandModel: ObservableObject {
         .store(in: &bag)
     }
 
+    var aiLineup: AILineup {
+        AILineup.make(
+            claudeOn: Prefs.bool(Prefs.claudeEnabled), claudeWorking: services.claude.isWorking,
+            claudeLastActive: services.claude.lastActive,
+            agents: [Prefs.bool(Prefs.aiCodex) ? services.codex.state : nil, Prefs.bool(Prefs.aiGemini) ? services.gemini.state : nil]
+                .compactMap { $0 })
+    }
+
+    /// Any assistant turned on in Settings is working.
+    var aiWorking: Bool {
+        (services.claude.isWorking && Prefs.bool(Prefs.claudeEnabled))
+            || (services.codex.isWorking && Prefs.bool(Prefs.aiCodex))
+            || (services.gemini.isWorking && Prefs.bool(Prefs.aiGemini))
+    }
+
     func refreshActivities() {
         var list: [Activity] = []
         if services.call.isActive, Prefs.bool(Prefs.callEnabled) { list.append(.call) }
         if services.nowPlaying.hasActivity, Prefs.bool(Prefs.nowPlayingEnabled) { list.append(.nowPlaying) }
-        if services.claude.isWorking, Prefs.bool(Prefs.claudeEnabled) { list.append(.claude) }
+        if aiWorking { list.append(.claude) }
         if services.flow.isActive, Prefs.bool(Prefs.flowEnabled) { list.append(.flow) }
         guard list != activities else { return }
         let previous = primaryActivity
@@ -493,7 +577,7 @@ final class IslandModel: ObservableObject {
 
     func select(_ page: Page) {
         guard let current = expandedPage, current != page else { return }
-        let all = Page.enabled
+        let all = Page.enabled(including: current)
         pageForward = (all.firstIndex(of: page) ?? 0) > (all.firstIndex(of: current) ?? 0)
         UserDefaults.standard.set(page.rawValue, forKey: Prefs.lastPage)
         timerEditing = false
@@ -513,7 +597,7 @@ final class IslandModel: ObservableObject {
     private func scheduleCollapse() {
         collapseWork?.cancel()
         let work = DispatchWorkItem { [weak self] in
-            guard let self, !self.hovering, !self.dropTargeting, !self.timerEditing else { return }
+            guard let self, !self.hovering, !self.dropTargeting, !self.timerEditing, !self.draggingOut else { return }
             if NSEvent.pressedMouseButtons != 0 { self.scheduleCollapse(); return }
             self.collapse()
         }
@@ -632,7 +716,7 @@ final class IslandModel: ObservableObject {
     func swipe(_ dir: SwipeDirection) {
         switch state {
         case .expanded(let p):
-            let pages = Page.enabled
+            let pages = Page.enabled(including: p)
             guard let i = pages.firstIndex(of: p) else { return }
             switch dir {
             case .left where i + 1 < pages.count: select(pages[i + 1])
@@ -712,8 +796,8 @@ final class IslandModel: ObservableObject {
             guard s.nowPlaying.track != nil else { return wings(15, text("—")) }
             return wings(22, Prefs.bool(Prefs.visualizer) ? 23 : 12)
         case .claude:
-            if s.claude.isWorking { return hovering ? nil : wings(16, 15) }
-            return wings(15, text(Self.claudeGlanceText(s.claude)))
+            if aiWorking { return hovering ? nil : wings(16, 15) }
+            return wings(15, text(aiGlanceText))
         case .flow:
             return wings(17, text("00:00", 13))
         case .calendar:
@@ -723,6 +807,13 @@ final class IslandModel: ObservableObject {
         case .shelf:
             return wings(16, text("\(s.shelf.items.count)"))
         }
+    }
+
+    /// Claude's session limit, or the busiest limit of the assistant leading in its place.
+    var aiGlanceText: String {
+        let lineup = aiLineup
+        if lineup.claudeLeads { return Self.claudeGlanceText(services.claude) }
+        return lineup.others.first?.limits.max { $0.utilization < $1.utilization }.map { "\(Int($0.utilization))%" } ?? "—"
     }
 
     static func claudeGlanceText(_ claude: ClaudeMonitor) -> String {
@@ -761,6 +852,11 @@ final class IslandModel: ObservableObject {
         let half = Self.pageWidth(.shelf, notch: notch) / 2
         let inset: CGFloat = 12 + 16
         return x > half - inset - Self.airDropZoneWidth - 6 ? .airDrop : .shelf
+    }
+
+    func setDraggingOut(_ on: Bool) {
+        draggingOut = on
+        if !on, !hovering, isExpanded { scheduleCollapse() }
     }
 
     func dragMoved(toOffset x: CGFloat?) {

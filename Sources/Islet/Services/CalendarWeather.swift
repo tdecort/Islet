@@ -17,8 +17,18 @@ final class CalendarService: ObservableObject {
 
     enum Access { case unknown, granted, denied }
 
+    /// A calendar as Settings lists it.
+    struct CalendarEntry: Identifiable, Equatable {
+        let id: String
+        let title: String
+        let account: String
+        let color: Color
+        let isGoogle: Bool
+    }
+
     @Published private(set) var access: Access = .unknown
     @Published private(set) var events: [Event] = []
+    @Published private(set) var calendars: [CalendarEntry] = []
     var onNotice: ((NoticeKind) -> Void)?
 
     private let store = EKEventStore()
@@ -58,8 +68,16 @@ final class CalendarService: ObservableObject {
     @objc func reload() {
         DispatchQueue.main.async { [self] in
             guard access == .granted, Prefs.bool(Prefs.calendarEnabled) else { events = []; return }
+            let all = store.calendars(for: .event)
+            calendars = all.map {
+                CalendarEntry(id: $0.calendarIdentifier, title: $0.title, account: $0.source?.title ?? "",
+                         color: Color(nsColor: $0.color), isGoogle: Self.isGoogle($0))
+            }
+            .sorted { ($0.account, $0.title) < ($1.account, $1.title) }
+            let shown = all.filter(Self.isShown)
             let now = Date()
-            let predicate = store.predicateForEvents(withStart: now.addingTimeInterval(-3600), end: now.addingTimeInterval(36 * 3600), calendars: nil)
+            guard !shown.isEmpty else { events = []; return }
+            let predicate = store.predicateForEvents(withStart: now.addingTimeInterval(-3600), end: now.addingTimeInterval(36 * 3600), calendars: shown)
             events = store.events(matching: predicate)
                 .filter { !$0.isAllDay && $0.endDate > now }
                 .sorted { $0.startDate < $1.startDate }
@@ -70,6 +88,25 @@ final class CalendarService: ObservableObject {
                         start: $0.startDate, end: $0.endDate, tint: Color(nsColor: $0.calendar.color), location: $0.location)
                 }
             scheduleReminder()
+        }
+    }
+
+    /// Google accounts reach macOS through Internet Accounts as CalDAV sources named after
+    /// the account, so the account address (or its name) says whether it is Google.
+    static func isGoogle(_ calendar: EKCalendar) -> Bool {
+        guard let source = calendar.source, source.sourceType == .calDAV else { return false }
+        let title = source.title.lowercased()
+        return title.contains("google") || title.hasSuffix("@gmail.com") || title.hasSuffix("@googlemail.com")
+    }
+
+    /// The source picked in Settings, minus the calendars turned off one by one.
+    static func isShown(_ calendar: EKCalendar) -> Bool {
+        let hidden = Set(Prefs.string(Prefs.calendarHidden).split(separator: ",").map(String.init))
+        guard !hidden.contains(calendar.calendarIdentifier) else { return false }
+        switch Prefs.string(Prefs.calendarSource) {
+        case "google": return isGoogle(calendar)
+        case "apple": return !isGoogle(calendar)
+        default: return true
         }
     }
 

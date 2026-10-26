@@ -21,6 +21,7 @@ enum Prefs {
     static let batteryLowThreshold = "batteryLowThreshold"
     static let batteryLowPower = "batteryLowPower"
     static let batteryInHeader = "batteryInHeader"
+    static let chargingInNotch = "chargingInNotch"
 
     static let bluetoothNotify = "bluetoothNotify"
     static let focusNotify = "focusNotify"
@@ -34,6 +35,8 @@ enum Prefs {
 
     static let calendarEnabled = "calendarEnabled"
     static let calendarLead = "calendarLead"
+    static let calendarSource = "calendarSource"  // all | apple | google
+    static let calendarHidden = "calendarHidden"  // calendar identifiers, comma separated
 
     static let weatherEnabled = "weatherEnabled"
     static let weatherCity = "weatherCity"
@@ -61,8 +64,12 @@ enum Prefs {
     static let claudeSound = "claudeSound"
     static let claudeUsage = "claudeUsage"
     static let claudeUsageAlerts = "claudeUsageAlerts"
+    static let aiCodex = "aiCodex"
+    static let aiGemini = "aiGemini"
 
     static let lastPage = "lastPage"
+    static let pageOrder = "pageOrder"
+    static let hiddenPages = "hiddenPages"
 
     static func register() {
         UserDefaults.standard.register(defaults: [
@@ -70,15 +77,16 @@ enum Prefs {
             haptics: true, emptyClickOpensDashboard: true, unlockAnimation: true,
             hudEnabled: true, hudReplaceSystem: true, hudStyle: "glow", hudSpeed: "smooth",
             hudDuration: 1.5, hudShowPercent: false, hudScaleSymbol: true,
-            batteryNotify: true, batteryLowThreshold: 20, batteryLowPower: true, batteryInHeader: true,
+            batteryNotify: true, batteryLowThreshold: 20, batteryLowPower: true, batteryInHeader: true, chargingInNotch: true,
             bluetoothNotify: true, focusNotify: true,
             nowPlayingEnabled: true, sourceMusic: true, sourceSpotify: true, sourceWeb: true, visualizer: true, artworkTint: true,
-            calendarEnabled: true, calendarLead: 5,
+            calendarEnabled: true, calendarLead: 5, calendarSource: "all", calendarHidden: "",
             weatherEnabled: true, weatherCity: "", weatherFahrenheit: false,
             flowEnabled: true, flowFocus: 25, flowShort: 5, flowLong: 15, flowRounds: 4, flowAutoContinue: true, flowSound: true, flowTone: "Radar",
             shelfEnabled: true, callEnabled: true, islandStyle: "auto", menuBarVeil: true, pinAcrossSpaces: true, keepCallCapturable: true,
             claudeEnabled: true, claudeOnlyWhenAway: true, claudeSound: true, claudeUsage: true, claudeUsageAlerts: true,
-            lastPage: "nowPlaying",
+            aiCodex: false, aiGemini: false,
+            lastPage: "nowPlaying", pageOrder: "", hiddenPages: "",
         ])
     }
 

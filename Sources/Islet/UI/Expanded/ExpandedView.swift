@@ -36,7 +36,7 @@ struct ExpandedView: View {
         let s = model.services
         switch page {
         case .nowPlaying: NowPlayingPage(np: s.nowPlaying)
-        case .claude: ClaudePage(claude: s.claude)
+        case .claude: AIPage(claude: s.claude, codex: s.codex, gemini: s.gemini)
         case .calendar: CalendarPage(calendar: s.calendar)
         case .weather: WeatherPage(weather: s.weather)
         case .flow: FlowPage(flow: s.flow, model: model)
@@ -139,6 +139,102 @@ private struct EmptyPlayer: View {
 
 // MARK: - Claude
 
+/// Claude on top while it is in use; Codex and Gemini below, one line each, only when in
+/// use. When only another assistant is in use, it takes Claude's place.
+private struct AIPage: View {
+    @ObservedObject var claude: ClaudeMonitor
+    @ObservedObject var codex: CodexMonitor
+    @ObservedObject var gemini: GeminiMonitor
+
+    var body: some View {
+        let lineup = AILineup.make(
+            claudeOn: Prefs.bool(Prefs.claudeEnabled), claudeWorking: claude.isWorking, claudeLastActive: claude.lastActive,
+            agents: [Prefs.bool(Prefs.aiCodex) ? codex.state : nil, Prefs.bool(Prefs.aiGemini) ? gemini.state : nil].compactMap { $0 })
+        VStack(alignment: .leading, spacing: 12) {
+            if lineup.claudeLeads {
+                ClaudePage(claude: claude)
+                ForEach(lineup.others, id: \.name) { AgentRow(agent: $0) }
+            } else {
+                AgentHeader(agent: lineup.others.first ?? placeholder)
+                ForEach(lineup.others.dropFirst(), id: \.name) { AgentRow(agent: $0) }
+            }
+        }
+        .frame(maxHeight: .infinity, alignment: .center)
+    }
+
+    private var placeholder: AgentState {
+        AgentState(name: Prefs.bool(Prefs.aiCodex) ? "Codex" : "Gemini")
+    }
+}
+
+/// What an assistant is doing, said in a few words.
+private func agentStatus(_ a: AgentState) -> String {
+    if a.working { return a.activity ?? "Thinking…" }
+    return a.finished == nil ? "No recent session" : "Done"
+}
+
+/// The run time while working, or how long ago the last run ended.
+private struct AgentClock: View {
+    let agent: AgentState
+    var size: CGFloat = 13
+
+    var body: some View {
+        if agent.working, let start = agent.started {
+            HStack(spacing: 6) {
+                TimelineView(.periodic(from: .now, by: 1)) { ctx in
+                    Text(Format.clock(ctx.date.timeIntervalSince(start)))
+                        .font(.system(size: size, weight: .semibold, design: .rounded).monospacedDigit())
+                        .foregroundStyle(AgentGlyph.tint(agent.name))
+                }
+                Spinner(tint: AgentGlyph.tint(agent.name), lineWidth: 2).frame(width: size - 1, height: size - 1)
+            }
+        } else if let limit = agent.limits.max(by: { $0.utilization < $1.utilization }) {
+            Text("\(limit.label) \(Int(limit.utilization))%")
+                .font(.system(size: 11.5, weight: .semibold, design: .rounded).monospacedDigit())
+                .foregroundStyle(limit.utilization >= 90 ? .red : limit.utilization >= 75 ? .orange : .white.opacity(0.45))
+        } else if let done = agent.finished {
+            Text(done.formatted(.relative(presentation: .named).locale(Format.locale)))
+                .font(.island(11)).foregroundStyle(.white.opacity(0.4))
+        }
+    }
+}
+
+/// An assistant as the page's main line, when Claude is turned off.
+private struct AgentHeader: View {
+    let agent: AgentState
+
+    var body: some View {
+        HStack(spacing: 10) {
+            AgentGlyph(name: agent.name, size: 17, active: agent.working)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(agentStatus(agent)).font(.island(14, .semibold)).foregroundStyle(.white).lineLimit(1)
+                Text([agent.name, agent.project].compactMap { $0 }.joined(separator: " · "))
+                    .font(.island(12)).foregroundStyle(.white.opacity(0.5)).lineLimit(1)
+            }
+            Spacer(minLength: 8)
+            AgentClock(agent: agent, size: 15)
+        }
+    }
+}
+
+/// One more assistant, on a single line under Claude.
+private struct AgentRow: View {
+    let agent: AgentState
+
+    var body: some View {
+        HStack(spacing: 8) {
+            AgentGlyph(name: agent.name, size: 12, active: agent.working)
+                .frame(width: 17)
+            Text(agent.name).font(.island(12, .semibold)).foregroundStyle(.white.opacity(0.85))
+            Text([agent.project, agentStatus(agent)].compactMap { $0 }.joined(separator: " · "))
+                .font(.island(11.5)).foregroundStyle(.white.opacity(0.5)).lineLimit(1)
+            Spacer(minLength: 6)
+            AgentClock(agent: agent)
+        }
+        .frame(height: 22)
+    }
+}
+
 private struct ClaudePage: View {
     @ObservedObject var claude: ClaudeMonitor
 
@@ -166,7 +262,6 @@ private struct ClaudePage: View {
                 }
             }
         }
-        .frame(maxHeight: .infinity, alignment: .center)
     }
 
     private func subtitle(_ s: ClaudeMonitor.Session?) -> String {
@@ -515,15 +610,82 @@ private struct ShelfItem: View {
             Text(url.lastPathComponent).font(.island(10.5)).foregroundStyle(.white.opacity(0.75)).lineLimit(1).truncationMode(.middle)
                 .frame(width: 64)
         }
-        .onTapGesture(count: 2) { NSWorkspace.shared.open(url) }
-        .onDrag { NSItemProvider(contentsOf: url) ?? NSItemProvider() }
-        .contextMenu {
-            Button("Open") { NSWorkspace.shared.open(url) }
-            Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([url]) }
-            Button("AirDrop") { shelf.airDrop([url]) }
-            Divider()
-            Button("Remove from Shelf") { shelf.remove(url) }
-        }
+        // Drag out, double-click and right-click are handled in AppKit: SwiftUI's drag
+        // source doesn't start reliably from a panel that never becomes active.
+        .overlay { if !SnapshotRenderer.isRendering { FileDragSource(url: url, shelf: shelf) } }
         .transition(.scale.combined(with: .opacity))
     }
+}
+
+private struct FileDragSource: NSViewRepresentable {
+    let url: URL
+    let shelf: ShelfStore
+
+    func makeNSView(context: Context) -> FileDragView { FileDragView(url: url, shelf: shelf) }
+
+    func updateNSView(_ view: FileDragView, context: Context) {
+        view.url = url
+    }
+}
+
+/// A shelf file you can drag into any app (Messages, Mail, Finder…), double-click to
+/// open, or right-click for more.
+final class FileDragView: NSView, NSDraggingSource {
+    var url: URL
+    private let shelf: ShelfStore
+    private var mouseDown: NSEvent?
+
+    init(url: URL, shelf: ShelfStore) {
+        self.url = url
+        self.shelf = shelf
+        super.init(frame: .zero)
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override func mouseDown(with event: NSEvent) {
+        if event.clickCount == 2 {
+            NSWorkspace.shared.open(url)
+            return
+        }
+        mouseDown = event
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard let start = mouseDown else { return }
+        let a = start.locationInWindow, b = event.locationInWindow
+        guard hypot(b.x - a.x, b.y - a.y) > 3 else { return }
+        mouseDown = nil
+        let item = NSDraggingItem(pasteboardWriter: url as NSURL)
+        item.setDraggingFrame(bounds, contents: NSWorkspace.shared.icon(forFile: url.path))
+        AppDelegate.shared?.model.setDraggingOut(true)
+        beginDraggingSession(with: [item], event: event, source: self)
+    }
+
+    override func mouseUp(with event: NSEvent) { mouseDown = nil }
+
+    func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
+        context == .outsideApplication ? [.copy, .generic] : .copy
+    }
+
+    func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
+        AppDelegate.shared?.model.setDraggingOut(false)
+    }
+
+    override func rightMouseDown(with event: NSEvent) {
+        let menu = NSMenu()
+        for (title, action) in [("Open", #selector(open)), ("Show in Finder", #selector(reveal)), ("AirDrop", #selector(airDrop))] {
+            menu.addItem(withTitle: title, action: action, keyEquivalent: "").target = self
+        }
+        menu.addItem(.separator())
+        menu.addItem(withTitle: "Remove from Shelf", action: #selector(remove), keyEquivalent: "").target = self
+        NSMenu.popUpContextMenu(menu, with: event, for: self)
+    }
+
+    @objc private func open() { NSWorkspace.shared.open(url) }
+    @objc private func reveal() { NSWorkspace.shared.activateFileViewerSelecting([url]) }
+    @objc private func airDrop() { shelf.airDrop([url]) }
+    @objc private func remove() { shelf.remove(url) }
 }

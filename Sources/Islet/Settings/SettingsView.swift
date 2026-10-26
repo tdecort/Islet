@@ -17,7 +17,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .connectivity: return "Audio Devices"
         case .focus: return "Focus"
         case .nowPlaying: return "Now Playing"
-        case .claude: return "Claude"
+        case .claude: return "AI Assistants"
         case .calendar: return "Calendar"
         case .weather: return "Weather"
         case .flow: return "Flow"
@@ -73,7 +73,12 @@ enum SettingsPane: String, CaseIterable, Identifiable {
 
 struct SettingsView: View {
     let services: Services
-    @State private var pane: SettingsPane? = .general
+    @State private var pane: SettingsPane?
+
+    init(services: Services, pane: SettingsPane = .general) {
+        self.services = services
+        _pane = State(initialValue: pane)
+    }
 
     var body: some View {
         NavigationSplitView {
@@ -127,6 +132,61 @@ struct SettingsView: View {
 
 // MARK: - Panes
 
+/// The order pages come in when swiping, and which ones swiping skips.
+private struct PagesSection: View {
+    @AppStorage(Prefs.pageOrder) private var order = ""
+    @AppStorage(Prefs.hiddenPages) private var hidden = ""
+
+    var body: some View {
+        let pages = currentOrder
+        Section {
+            ForEach(Array(pages.enumerated()), id: \.element) { index, page in
+                HStack(spacing: 10) {
+                    Image(systemName: page.symbol).frame(width: 20).foregroundStyle(.secondary)
+                    Text(page.title)
+                    if !page.isOn { Text("Off").foregroundStyle(.tertiary) }
+                    Spacer()
+                    Button { move(page, by: -1) } label: { Image(systemName: "chevron.up") }
+                        .buttonStyle(.borderless).disabled(index == 0)
+                    Button { move(page, by: 1) } label: { Image(systemName: "chevron.down") }
+                        .buttonStyle(.borderless).disabled(index == pages.count - 1)
+                    Toggle("Show", isOn: shown(page)).labelsHidden().toggleStyle(.switch).controlSize(.small)
+                }
+            }
+            Button("Reset Order") { order = ""; hidden = "" }
+                .disabled(order.isEmpty && hidden.isEmpty)
+        } header: {
+            Text("Pages")
+        } footer: {
+            Text(
+                "The order pages come in when you swipe across the island. A hidden page is skipped while swiping, but its live activity still shows (music keeps playing in the notch, a call still takes over). Features themselves are turned on and off in their own settings."
+            )
+        }
+    }
+
+    private var currentOrder: [Page] {
+        let saved = order.split(separator: ",").compactMap { Page(rawValue: String($0)) }
+        return saved + Page.allCases.filter { !saved.contains($0) }
+    }
+
+    private func move(_ page: Page, by offset: Int) {
+        var pages = currentOrder
+        guard let i = pages.firstIndex(of: page), pages.indices.contains(i + offset) else { return }
+        pages.swapAt(i, i + offset)
+        withAnimation { order = pages.map(\.rawValue).joined(separator: ",") }
+    }
+
+    private func shown(_ page: Page) -> Binding<Bool> {
+        Binding {
+            !hidden.split(separator: ",").contains(Substring(page.rawValue))
+        } set: { on in
+            var set = hidden.split(separator: ",").map(String.init).filter { $0 != page.rawValue }
+            if !on { set.append(page.rawValue) }
+            hidden = set.joined(separator: ",")
+        }
+    }
+}
+
 private struct GeneralPane: View {
     @AppStorage(Prefs.showMenuBarIcon) private var menuBar = true
     @AppStorage(Prefs.showInFullScreen) private var fullScreen = false
@@ -162,6 +222,7 @@ private struct GeneralPane: View {
                     "Notch: the island grows out of the notch, against the top of the screen. Island: a floating pill under the menu bar, like on iPhone. Automatic: notch on Macs that have one, island everywhere else."
                 )
             }
+            PagesSection()
             Section("Behavior") {
                 Picker("Click on an empty island", selection: $clickOpens) {
                     Text("Open the dashboard").tag(true)
@@ -314,6 +375,7 @@ private struct BatteryPane: View {
     @AppStorage(Prefs.batteryLowThreshold) private var threshold = 20
     @AppStorage(Prefs.batteryLowPower) private var lowPower = true
     @AppStorage(Prefs.batteryInHeader) private var header = true
+    @AppStorage(Prefs.chargingInNotch) private var chargingMark = true
 
     var body: some View {
         Form {
@@ -324,7 +386,10 @@ private struct BatteryPane: View {
             } footer: {
                 Text("Charger connected, battery below the threshold (and below 10%), Low Power Mode turned on.")
             }
-            Section { Toggle("Always show the battery in the dashboard", isOn: $header) }
+            Section {
+                Toggle("Always show the battery in the dashboard", isOn: $header)
+                Toggle("Show a bolt in the notch while plugged in", isOn: $chargingMark)
+            }
         }
     }
 }
@@ -412,6 +477,8 @@ private struct ClaudePane: View {
     @AppStorage(Prefs.claudeSound) private var sound = true
     @AppStorage(Prefs.claudeUsage) private var usage = true
     @AppStorage(Prefs.claudeUsageAlerts) private var alerts = true
+    @AppStorage(Prefs.aiCodex) private var codex = false
+    @AppStorage(Prefs.aiGemini) private var gemini = false
     @State private var error: String?
 
     var body: some View {
@@ -458,10 +525,20 @@ private struct ClaudePane: View {
                 Text("Limits")
             } footer: {
                 Text(
-                    "Limits come from Claude Code’s status line. As a fallback, Islet reads Claude Code’s sign-in token from your keychain (macOS asks first) to fetch your usage at most every 15 minutes. Nothing else is sent anywhere."
+                    "With Claude Code in the terminal, limits are live: its status line reports them after every reply. The Claude app’s Code tab has no status line, so Islet asks Anthropic for your usage after each reply instead, using Claude Code’s sign-in token from your keychain (macOS asks first), at most every 2 minutes and less when Anthropic asks it to slow down. Nothing else is sent anywhere."
                 )
             }
             .disabled(!enabled)
+            Section {
+                Toggle("Codex (ChatGPT)", isOn: $codex)
+                Toggle("Gemini CLI and Antigravity", isOn: $gemini)
+            } header: {
+                Text("Other assistants")
+            } footer: {
+                Text(
+                    "Islet reads the session files these tools keep on your Mac: ~/.codex/sessions for Codex (state, current tool and rate limits), ~/.gemini for Gemini CLI and Antigravity (working or done). An assistant only shows up once you use it, and stays for 12 hours. Claude comes first whenever you use it, with the others listed below; if you only use Codex or Gemini, it takes Claude’s place. Nothing is sent anywhere."
+                )
+            }
         }
     }
 
@@ -485,6 +562,8 @@ private struct CalendarPane: View {
     @ObservedObject var calendar: CalendarService
     @AppStorage(Prefs.calendarEnabled) private var enabled = true
     @AppStorage(Prefs.calendarLead) private var lead = 5
+    @AppStorage(Prefs.calendarSource) private var source = "all"
+    @AppStorage(Prefs.calendarHidden) private var hidden = ""
 
     var body: some View {
         Form {
@@ -502,9 +581,77 @@ private struct CalendarPane: View {
                     }
                 }
             }
+            Section {
+                Picker("Show events from", selection: $source) {
+                    Text("All calendars").tag("all")
+                    Text("Apple Calendar").tag("apple")
+                    Text("Google Calendar").tag("google")
+                }
+                LabeledContent("Google account") {
+                    if hasGoogle {
+                        HStack {
+                            Label("Connected", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
+                            Button("Manage…", action: openInternetAccounts)
+                        }
+                    } else {
+                        Button("Sign in with Google…", action: openInternetAccounts).buttonStyle(.borderedProminent)
+                    }
+                }
+            } header: {
+                Text("Source")
+            } footer: {
+                Text(
+                    "Islet reads Google Calendar through macOS: sign in under System Settings › Internet Accounts › Google and turn on Calendars. Your Google password stays with Apple; Islet never sees it. New events show up as soon as macOS syncs them."
+                )
+            }
+            .disabled(!enabled || calendar.access != .granted)
+            if calendar.access == .granted, !visibleCalendars.isEmpty {
+                Section("Calendars") {
+                    ForEach(visibleCalendars) { c in
+                        Toggle(isOn: binding(for: c.id)) {
+                            HStack(spacing: 8) {
+                                Circle().fill(c.color).frame(width: 9, height: 9)
+                                Text(c.title)
+                                Text(c.account).foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
+                .disabled(!enabled)
+            }
         }
+        .onAppear { calendar.reload() }
         .onChange(of: lead) { calendar.reload() }
         .onChange(of: enabled) { calendar.reload() }
+        .onChange(of: source) { calendar.reload() }
+        .onChange(of: hidden) { calendar.reload() }
+    }
+
+    private var hasGoogle: Bool { calendar.calendars.contains(where: \.isGoogle) }
+
+    private var visibleCalendars: [CalendarService.CalendarEntry] {
+        calendar.calendars.filter {
+            switch source {
+            case "google": return $0.isGoogle
+            case "apple": return !$0.isGoogle
+            default: return true
+            }
+        }
+    }
+
+    private func binding(for id: String) -> Binding<Bool> {
+        Binding {
+            !hidden.split(separator: ",").contains(Substring(id))
+        } set: { on in
+            var set = hidden.split(separator: ",").map(String.init).filter { $0 != id }
+            if !on { set.append(id) }
+            hidden = set.joined(separator: ",")
+        }
+    }
+
+    private func openInternetAccounts() {
+        let url = URL(string: "x-apple.systempreferences:com.apple.Internet-Accounts-Settings.extension")!
+        NSWorkspace.shared.open(url)
     }
 }
 

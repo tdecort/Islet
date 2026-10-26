@@ -72,7 +72,16 @@ private struct IslandContent: View {
     var body: some View {
         switch state {
         case .idle:
-            Color.clear
+            if model.showsCharging {
+                Wings(notch: model.notch, inset: 6) {
+                    ChargingBolt()
+                } trailing: {
+                    EmptyView()
+                }
+                .environment(\.wingWidths, IslandModel.chargingWings)
+            } else {
+                Color.clear
+            }
         case .compact(let a):
             CompactView(model: model, activity: a)
                 .environment(\.wingWidths, model.wingWidths(for: a.page))
@@ -99,7 +108,9 @@ private struct CompactView: View {
         switch activity {
         case .nowPlaying: NowPlayingCompact(np: model.services.nowPlaying, notch: model.notch)
         case .flow: FlowCompact(flow: model.services.flow, notch: model.notch)
-        case .claude: ClaudeCompact(claude: model.services.claude, notch: model.notch, hovering: model.hovering)
+        case .claude:
+            AICompact(claude: model.services.claude, codex: model.services.codex, gemini: model.services.gemini,
+                      notch: model.notch, hovering: model.hovering, charging: model.showsCharging)
         case .call:
             CallCompact(call: model.services.call, notch: model.notch, pinned: model.videoPinned) { model.toggleVideoPin() }
         }
@@ -155,11 +166,12 @@ struct ClaudeCompact: View {
     @ObservedObject var claude: ClaudeMonitor
     let notch: CGSize
     let hovering: Bool
+    var charging = false
 
     var body: some View {
         VStack(spacing: 0) {
             Wings(notch: notch, inset: 6) {
-                ClaudeGlyph(size: 15)
+                if charging { ChargingBolt() } else { ClaudeGlyph(size: 15) }
             } trailing: {
                 Spinner(tint: ClaudeMonitor.tint).frame(width: 15, height: 15)
             }
@@ -181,6 +193,86 @@ struct ClaudeCompact: View {
         var parts = [s?.project ?? "Claude", ClaudeMonitor.describe(s)]
         if let start = s?.promptStarted, s?.working == true { parts.append(Format.clock(Date().timeIntervalSince(start))) }
         return parts.joined(separator: " · ")
+    }
+}
+
+/// The working assistant in compact form: Claude first, then Codex, then Gemini.
+struct AICompact: View {
+    @ObservedObject var claude: ClaudeMonitor
+    @ObservedObject var codex: CodexMonitor
+    @ObservedObject var gemini: GeminiMonitor
+    let notch: CGSize
+    let hovering: Bool
+    var charging = false
+
+    var body: some View {
+        if claude.isWorking && Prefs.bool(Prefs.claudeEnabled) {
+            ClaudeCompact(claude: claude, notch: notch, hovering: hovering, charging: charging)
+        } else if let agent = working {
+            VStack(spacing: 0) {
+                Wings(notch: notch, inset: 6) {
+                    if charging { ChargingBolt() } else { AgentGlyph(name: agent.name, size: 15) }
+                } trailing: {
+                    Spinner(tint: AgentGlyph.tint(agent.name)).frame(width: 15, height: 15)
+                }
+                if hovering {
+                    Text([agent.project ?? agent.name, agent.activity ?? "Thinking…"].joined(separator: " · "))
+                        .font(.island(11.5, .medium)).lineLimit(1)
+                        .foregroundStyle(.white.opacity(0.72))
+                        .frame(height: 22)
+                        .transition(.opacity.combined(with: .offset(y: -6)))
+                }
+            }
+            .animation(Motion.lift, value: hovering)
+        } else {
+            ClaudeCompact(claude: claude, notch: notch, hovering: hovering, charging: charging)
+        }
+    }
+
+    private var working: AgentState? {
+        if Prefs.bool(Prefs.aiCodex), let x = codex.state, x.working { return x }
+        if Prefs.bool(Prefs.aiGemini), let g = gemini.state, g.working { return g }
+        return nil
+    }
+}
+
+/// The charging mark of the folded island.
+struct ChargingBolt: View {
+    var body: some View {
+        Image(systemName: "bolt.fill")
+            .font(.system(size: 14, weight: .bold))
+            .foregroundStyle(.green)
+            .transition(.opacity.combined(with: .scale(scale: 0.6)))
+    }
+}
+
+/// The mark of an assistant other than Claude, in its own colour.
+struct AgentGlyph: View {
+    let name: String
+    var size: CGFloat
+    var active = false
+
+    static func tint(_ name: String) -> Color {
+        switch name {
+        case "Codex": return Color(white: 0.92)
+        case "Antigravity": return Color(red: 0.42, green: 0.62, blue: 1.0)
+        default: return Color(red: 0.36, green: 0.55, blue: 1.0)  // Gemini blue
+        }
+    }
+
+    static func symbol(_ name: String) -> String {
+        switch name {
+        case "Codex": return "hexagon.fill"
+        case "Antigravity": return "arrow.up.circle.fill"
+        default: return "sparkles"
+        }
+    }
+
+    var body: some View {
+        Image(systemName: Self.symbol(name))
+            .font(.system(size: size, weight: .bold))
+            .foregroundStyle(Self.tint(name))
+            .symbolEffect(.pulse, options: .repeating, isActive: active)
     }
 }
 
@@ -442,6 +534,19 @@ private struct NoticeView: View {
                 }
             } title: {
                 Text("Claude is done")
+            } subtitle: {
+                Text(project)
+            }
+
+        case .agentDone(let name, let project):
+            Card(notch: n, inset: 10) {
+                ZStack(alignment: .bottomTrailing) {
+                    AgentGlyph(name: name, size: 22)
+                    Image(systemName: "checkmark.circle.fill").font(.island(11, .bold)).foregroundStyle(.green)
+                        .background(Circle().fill(.black).padding(-1)).offset(x: 4, y: 3)
+                }
+            } title: {
+                Text("\(name) is done")
             } subtitle: {
                 Text(project)
             }
