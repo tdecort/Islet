@@ -112,6 +112,8 @@ final class ClaudeMonitor: ObservableObject {
     /// Earliest moment the usage endpoint may be called again (rate-limit backoff).
     /// Earliest moment the usage endpoint may be called again. Persisted, so relaunching
     /// Islet never calls an endpoint that asked it to wait.
+    /// The last answer said the token was refused: read a fresh one next time.
+    private var reloadTokenNext = false
     private var notBefore = Date(timeIntervalSince1970: UserDefaults.standard.double(forKey: "claudeUsageNotBefore")) {
         didSet { UserDefaults.standard.set(notBefore.timeIntervalSince1970, forKey: "claudeUsageNotBefore") }
     }
@@ -313,6 +315,8 @@ final class ClaudeMonitor: ObservableObject {
         guard Date().timeIntervalSince(lastStatusLine) > 900 else { return }
         guard force || Date().timeIntervalSince(lastFetch) > minInterval else { return }
         lastFetch = Date()
+        let reloadToken = reloadToken || reloadTokenNext
+        reloadTokenNext = false
         if session == nil { usageStatus = .loading }
         io.async { [weak self] in
             let token: String
@@ -354,8 +358,15 @@ final class ClaudeMonitor: ObservableObject {
             return
         }
         if status == 401 || status == 403 {
-            // Claude Code may have rotated its token since we cached it: read it once more.
-            if retried { usageStatus = .expired } else { refreshUsage(force: true, reloadToken: true) }
+            // Claude Code may have rotated its token since we read it. Read it again on the
+            // next attempt, a few minutes later: an immediate retry gets Islet throttled for an hour.
+            if retried {
+                usageStatus = .expired
+            } else {
+                reloadTokenNext = true
+                notBefore = Date().addingTimeInterval(300)
+                if session == nil { usageStatus = .failed("Claude Code’s sign-in changed, retrying at \(Format.time.string(from: notBefore))") }
+            }
             return
         }
         guard status == 200, let data, let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
