@@ -24,8 +24,10 @@ struct IslandRootView: View {
         .background(Color.black)
         .clipShape(shape)
         .shadow(color: .black.opacity(model.shadow), radius: 22, x: 0, y: 10)
-        .opacity(model.islandAsleep ? 0 : 1)
-        .animation(Motion.content, value: model.islandAsleep)
+        // Tucks up into the top edge rather than just fading, like the island on iPhone.
+        .scaleEffect(model.vanished ? 0.7 : 1, anchor: .top)
+        .blur(radius: model.vanished ? 8 : 0)
+        .opacity(model.vanished ? 0 : 1)
         .contentShape(shape)
         .onTapGesture { model.click() }
         .overlay(alignment: .topTrailing) {

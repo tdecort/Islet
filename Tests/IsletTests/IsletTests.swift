@@ -113,6 +113,19 @@ import Testing
         return m
     }
 
+    @Test func swipeUpPutsTheIslandAwayAndDownBringsItBack() {
+        let m = model()
+        m.swipe(.up)
+        #expect(m.putAway && m.vanished)
+        m.swipe(.left)
+        #expect(m.putAway)
+        m.swipe(.down)
+        #expect(!m.putAway && !m.vanished)
+        m.swipe(.up)
+        m.click()
+        #expect(!m.putAway)
+    }
+
     @Test func idleHidesInsideHardwareNotch() {
         let g = model().target(for: .idle)
         #expect(g.width < 179 && g.height < 32 && g.top == 0)

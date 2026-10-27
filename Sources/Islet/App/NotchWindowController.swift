@@ -143,7 +143,7 @@ final class NotchWindowController {
             .sink { [weak self] _ in
                 self?.panel.orderFrontRegardless()
                 // Let the new Space settle before checking for a full-screen app.
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { self?.updateFullScreenVisibility(spaceChanged: true) }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { self?.updateFullScreenVisibility() }
             }
             .store(in: &bag)
         NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didActivateApplicationNotification)
@@ -208,18 +208,13 @@ final class NotchWindowController {
     private var placedStyle = ""
     private var pinnedToSkyLight = false
     private var hiddenForFullScreen = false
-    private var spaceLacksMenuBar = false
 
     /// A window in the pinned space ignores Spaces, full-screen ones included, so honour
-    /// "show in full screen" by hand: hide while the app in front fills the whole screen
-    /// (a full-screen app, or a video put full screen in the browser), or while the
-    /// Space has no menu bar.
-    private func updateFullScreenVisibility(spaceChanged: Bool = false) {
-        guard let screen else { return }
-        // The menu bar is only looked for right after a Space change: with "hide the menu
-        // bar automatically" it is missing on ordinary desktops too, between changes.
-        if spaceChanged { spaceLacksMenuBar = pinnedToSkyLight && !Self.menuBarVisible(on: screen) }
-        let hide = !Prefs.bool(Prefs.showInFullScreen) && (Self.frontAppFillsScreen(screen) || spaceLacksMenuBar)
+    /// "show in full screen" by hand.
+    private func updateFullScreenVisibility() {
+        guard let screen, let display = Self.displayID(screen) else { return }
+        let fullScreen = SkyLight.showsFullScreenSpace(display: display) ?? Self.frontAppFillsScreen(screen)
+        let hide = fullScreen && !Prefs.bool(Prefs.showInFullScreen)
         guard hide != hiddenForFullScreen else { return }
         hiddenForFullScreen = hide
         NSAnimationContext.runAnimationGroup { ctx in
@@ -267,18 +262,6 @@ final class NotchWindowController {
         }
     }
 
-    private static func menuBarVisible(on screen: NSScreen) -> Bool {
-        guard let id = displayID(screen),
-            let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]]
-        else { return true }
-        let bounds = CGDisplayBounds(id)
-        return windows.contains { w in
-            guard (w[kCGWindowLayer as String] as? Int) == Int(CGWindowLevelForKey(.mainMenuWindow)),
-                let b = w[kCGWindowBounds as String] as? [String: CGFloat]
-            else { return false }
-            return abs((b["Y"] ?? -1) - bounds.minY) < 1 && abs((b["X"] ?? -1) - bounds.minX) < 1
-        }
-    }
 
     /// The notched built-in display if there is one, otherwise the main screen. The style
     /// decides between hanging from the bezel (notch) and floating under the menu bar (island).
@@ -310,8 +293,8 @@ final class NotchWindowController {
 
     private func islandRect(padding: CGFloat) -> NSRect {
         guard let screen else { return .zero }
-        // An island asleep still answers where it used to be.
-        let g = model.islandAsleep ? model.wakeGeometry : model.targetGeometry
+        // An island asleep or put away still answers where it used to be.
+        let g = model.vanished ? model.wakeGeometry : model.targetGeometry
         var w = g.width + 2 * g.top
         if model.secondaryActivity != nil { w += 2 * (model.notch.height + 8) }
         let top = screen.frame.maxY - model.topInset

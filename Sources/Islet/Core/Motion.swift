@@ -21,6 +21,9 @@ enum Motion {
     static var contentOut: Animation { reduced ? fade : .easeOut(duration: 0.14) }
 
     /// Hover lift on a live activity.
+    /// The island tucking itself away (or coming back) over full-screen video and in an
+    /// empty island mode: one soft spring for size, opacity and blur together.
+    static var vanish: Animation { reduced ? fade : .spring(response: 0.42, dampingFraction: 0.9) }
     static var lift: Animation { reduced ? fade : .spring(response: 0.30, dampingFraction: 0.66) }
 
     /// The empty-island "boop": a quick swell, then a jelly settle.

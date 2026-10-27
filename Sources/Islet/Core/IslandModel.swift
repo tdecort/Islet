@@ -201,6 +201,21 @@ final class IslandModel: ObservableObject {
     /// Island mode with nothing to show: after a moment the pill fades away instead of
     /// leaving a black bar on screen. Hovering where it sits brings it back.
     @Published private(set) var islandAsleep = false
+    /// Put away with a two-finger swipe up, for a film or anything else: the island stays
+    /// out of sight (volume and brightness still show) until swiped down or clicked.
+    @Published private(set) var putAway = false
+    var vanished: Bool {
+        if case .transient(.hud) = state { return false }
+        return islandAsleep || putAway
+    }
+
+    private func setPutAway(_ away: Bool) {
+        guard away != putAway else { return }
+        if away { collapseWork?.cancel(); glanceWork?.cancel() }
+        withAnimation(Motion.vanish) { putAway = away }
+        reconcile(Motion.vanish)
+        Motion.haptic(.generic)
+    }
     private var sleepWork: DispatchWorkItem?
     static let islandSleepDelay: TimeInterval = 3
     @Published private(set) var dropTargeting = false
@@ -415,7 +430,7 @@ final class IslandModel: ObservableObject {
     /// Island mode only: put an empty island to sleep after a moment, wake it the instant
     /// anything shows or the pointer comes near.
     private func updateSleep() {
-        let empty = detached && state == .idle && !hovering && !bumped
+        let empty = detached && state == .idle && !hovering && !bumped && !putAway
         guard empty else {
             sleepWork?.cancel()
             sleepWork = nil
@@ -427,7 +442,7 @@ final class IslandModel: ObservableObject {
             guard let self else { return }
             self.sleepWork = nil
             guard self.detached, self.state == .idle, !self.hovering, !self.bumped else { return }
-            withAnimation(Motion.content) { self.islandAsleep = true }
+            withAnimation(Motion.vanish) { self.islandAsleep = true }
             self.reconcile(Motion.closeWidth)
         }
         sleepWork = work
@@ -532,6 +547,8 @@ final class IslandModel: ObservableObject {
             activities = list
             if !list.contains(.call) { videoPinned = false }
             if callStarted {
+                // A call always comes through, even with the island put away.
+                if putAway { putAway = false }
                 // Like on iPhone, a call that begins takes the main island.
                 primaryIndex = list.firstIndex(of: .call) ?? 0
             } else if let previous, let i = list.firstIndex(of: previous) {
@@ -644,6 +661,8 @@ final class IslandModel: ObservableObject {
     func setHovering(_ inside: Bool) {
         guard inside != hovering else { return }
         hovering = inside
+        // Put away: the pointer only marks where to swipe down or click to bring it back.
+        if putAway { return }
         if inside {
             collapseWork?.cancel()
             glanceWork?.cancel()
@@ -680,6 +699,7 @@ final class IslandModel: ObservableObject {
 
     func click() {
         TimerAlarm.shared.stop()
+        if putAway { setPutAway(false); return }
         switch state {
         case .idle:
             if Prefs.bool(Prefs.emptyClickOpensDashboard) { expand() } else { lastBump = .distantPast; bump() }
@@ -748,6 +768,10 @@ final class IslandModel: ObservableObject {
     }
 
     func swipe(_ dir: SwipeDirection) {
+        if putAway {
+            if dir == .down { setPutAway(false) }
+            return
+        }
         switch state {
         case .expanded(let p):
             let pages = Page.enabled(including: p)
@@ -762,12 +786,13 @@ final class IslandModel: ObservableObject {
             switch dir {
             case .left, .right: stepGlance(dir)
             case .down: click()
-            case .up: if glance != nil { clearGlance() }
+            // Back from a preview first; from the live activity, put the island away.
+            case .up: if glance != nil { clearGlance() } else { setPutAway(true) }
             }
         case .transient(.notice):
             if dir == .up { dismissTransient() } else if dir == .down { click() }
         case .idle:
-            if dir == .down { expand() } else if dir == .left || dir == .right { stepGlance(dir) }
+            if dir == .down { expand() } else if dir == .up { setPutAway(true) } else if dir == .left || dir == .right { stepGlance(dir) }
         case .transient(.hud):
             break
         }

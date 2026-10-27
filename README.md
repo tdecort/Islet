@@ -158,6 +158,8 @@ Keep files on **the Shelf**, then drag them right back out into Messages, Mail o
 
 Hover the island and swipe with two fingers: music, AI, calendar, weather, timer and Shelf glide by in compact form. Put them in the order you like, and hide the ones you don't need.
 
+**Watching a film?** Swipe up with two fingers on the island and it tucks itself away. Swipe down, or click where it was, and it's back. Volume and brightness still show, and an incoming call always comes through.
+
 ## For Macs without a notch
 
 <img src="docs/images/27-island-mode.png" width="49%" alt="Island mode on a display without a notch">
@@ -236,6 +238,7 @@ That's it. Islet lives in your notch and your menu bar, never in the Dock. To st
 | Click | Opens the island. |
 | Two-finger swipe ← → | Switches between activities and views. |
 | Two-finger swipe ↓ / ↑ | Opens / closes the island. |
+| Two-finger swipe ↑ on the folded island | Puts the island away, for a film or a presentation. Swipe ↓ or click where it was to bring it back. |
 | Drag a file to the notch | Opens the Shelf and AirDrop. |
 | Click the side bubble | Brings the second activity to the front. |
 

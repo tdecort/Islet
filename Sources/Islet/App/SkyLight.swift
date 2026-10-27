@@ -20,6 +20,24 @@ enum SkyLight {
 
     private static var space: UInt64?
 
+    private typealias CopyDisplaySpacesFn = @convention(c) (Int32) -> Unmanaged<CFArray>?
+
+    /// Whether the Space showing on this display is a full-screen app's (type 4), as the
+    /// window server reports it. Nil when the private call is unavailable.
+    static func showsFullScreenSpace(display: CGDirectDisplayID) -> Bool? {
+        guard let connection = symbol("SLSMainConnectionID", MainConnectionFn.self),
+            let copy = symbol("SLSCopyManagedDisplaySpaces", CopyDisplaySpacesFn.self),
+            let displays = copy(connection())?.takeRetainedValue() as? [[String: Any]],
+            let uuid = CGDisplayCreateUUIDFromDisplayID(display)?.takeRetainedValue(),
+            let id = CFUUIDCreateString(nil, uuid) as String?
+        else { return nil }
+        // With "Displays have separate Spaces" off, there is one entry, named "Main".
+        let entry = displays.first { ($0["Display Identifier"] as? String) == id }
+            ?? displays.first { ($0["Display Identifier"] as? String) == "Main" }
+        guard let current = entry?["Current Space"] as? [String: Any] else { return nil }
+        return (current["type"] as? Int) == 4
+    }
+
     /// Returns true when the window now lives in the pinned space.
     @discardableResult
     static func pin(_ window: NSWindow) -> Bool {
