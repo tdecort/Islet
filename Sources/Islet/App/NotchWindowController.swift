@@ -143,8 +143,17 @@ final class NotchWindowController {
             .sink { [weak self] _ in
                 self?.panel.orderFrontRegardless()
                 // Let the new Space settle before checking for a full-screen app.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { self?.updateFullScreenVisibility(spaceChanged: true) }
+            }
+            .store(in: &bag)
+        NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didActivateApplicationNotification)
+            .sink { [weak self] _ in
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { self?.updateFullScreenVisibility() }
             }
+            .store(in: &bag)
+        // A video can go full screen without the app or Space changing (a browser's player).
+        Timer.publish(every: 2, on: .main, in: .common).autoconnect()
+            .sink { [weak self] _ in self?.updateFullScreenVisibility() }
             .store(in: &bag)
         NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.screensDidWakeNotification)
             .sink { [weak self] _ in self?.place() }
@@ -199,19 +208,67 @@ final class NotchWindowController {
     private var placedStyle = ""
     private var pinnedToSkyLight = false
     private var hiddenForFullScreen = false
+    private var spaceLacksMenuBar = false
 
     /// A window in the pinned space ignores Spaces, full-screen ones included, so honour
-    /// "show in full screen" by hand: a full-screen Space has no menu bar window.
-    private func updateFullScreenVisibility() {
-        guard pinnedToSkyLight, let screen else { return }
-        let hide = !Prefs.bool(Prefs.showInFullScreen) && !Self.menuBarVisible(on: screen)
+    /// "show in full screen" by hand: hide while the app in front fills the whole screen
+    /// (a full-screen app, or a video put full screen in the browser), or while the
+    /// Space has no menu bar.
+    private func updateFullScreenVisibility(spaceChanged: Bool = false) {
+        guard let screen else { return }
+        // The menu bar is only looked for right after a Space change: with "hide the menu
+        // bar automatically" it is missing on ordinary desktops too, between changes.
+        if spaceChanged { spaceLacksMenuBar = pinnedToSkyLight && !Self.menuBarVisible(on: screen) }
+        let hide = !Prefs.bool(Prefs.showInFullScreen) && (Self.frontAppFillsScreen(screen) || spaceLacksMenuBar)
+        guard hide != hiddenForFullScreen else { return }
         hiddenForFullScreen = hide
-        panel.animator().alphaValue = hide ? 0 : 1
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = 0.25
+            panel.animator().alphaValue = hide ? 0 : 1
+        }
         if hide { panel.ignoresMouseEvents = true }
     }
 
+    private static func displayID(_ screen: NSScreen) -> CGDirectDisplayID? {
+        screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID
+    }
+
+    /// The frontmost app is full screen. macOS says so through Accessibility (a browser
+    /// video put full screen counts too); without that permission, fall back to a window
+    /// exactly the size of the screen.
+    private static func frontAppFillsScreen(_ screen: NSScreen) -> Bool {
+        guard let front = NSWorkspace.shared.frontmostApplication,
+            front.processIdentifier != ProcessInfo.processInfo.processIdentifier
+        else { return false }
+        if AXIsProcessTrusted() {
+            let app = AXUIElementCreateApplication(front.processIdentifier)
+            var window: CFTypeRef?
+            var full: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(app, kAXFocusedWindowAttribute as CFString, &window) == .success,
+                let window, CFGetTypeID(window) == AXUIElementGetTypeID()
+            else { return false }
+            let element = window as! AXUIElement
+            guard AXUIElementCopyAttributeValue(element, "AXFullScreen" as CFString, &full) == .success else { return false }
+            return (full as? Bool) == true
+        }
+        guard let id = displayID(screen),
+            let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
+                as? [[String: Any]]
+        else { return false }
+        let display = CGDisplayBounds(id)
+        return windows.contains { w in
+            guard (w[kCGWindowOwnerPID as String] as? pid_t) == front.processIdentifier,
+                (w[kCGWindowLayer as String] as? Int) == 0,
+                let b = w[kCGWindowBounds as String] as? [String: CGFloat]
+            else { return false }
+            let r = CGRect(x: b["X"] ?? 0, y: b["Y"] ?? 0, width: b["Width"] ?? 0, height: b["Height"] ?? 0)
+            return abs(r.minX - display.minX) < 1 && abs(r.minY - display.minY) < 1
+                && abs(r.width - display.width) < 1 && abs(r.height - display.height) < 1
+        }
+    }
+
     private static func menuBarVisible(on screen: NSScreen) -> Bool {
-        guard let id = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID,
+        guard let id = displayID(screen),
             let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]]
         else { return true }
         let bounds = CGDisplayBounds(id)
