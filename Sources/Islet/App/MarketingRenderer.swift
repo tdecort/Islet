@@ -109,6 +109,12 @@ enum MarketingRenderer {
                 transient: .notice(
                     Notice(kind: .deviceConnected(name: "AirPods Pro", symbol: "airpodspro", battery: DeviceBattery(left: 92, right: 88, caseLevel: 70)))))
         }
+        shot("15b-mouse") {
+            model.preview(transient: .notice(Notice(kind: .deviceConnected(name: "Pebble M350s", symbol: "computermouse", battery: DeviceBattery()))))
+        }
+        shot("15c-disconnected") {
+            model.preview(transient: .notice(Notice(kind: .deviceDisconnected(name: "AirPods Pro", symbol: "airpodspro"))))
+        }
         shot("16-charging") { model.preview(transient: .notice(Notice(kind: .charging(82)))) }
         // Paused music has left the folded island: only the charging bolt stays.
         UserDefaults.standard.set(false, forKey: Prefs.nowPlayingEnabled)

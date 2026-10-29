@@ -357,6 +357,30 @@ final class IslandModel: ObservableObject {
         }
     }
 
+    /// The device and its name on the left of the camera; its battery, a check mark or
+    /// "Disconnected" on the right.
+    static func deviceWings(_ k: NoticeKind, name: String) -> WingWidths {
+        let symbol: String
+        switch k {
+        case .deviceConnected(_, let s, _), .deviceDisconnected(_, let s): symbol = s
+        default: symbol = ""
+        }
+        let font = NSFont.systemFont(ofSize: 12.5, weight: .semibold)
+        let label = ceil(min(150, (deviceLabel(name) as NSString).size(withAttributes: [.font: font]).width)) + 2
+        let disconnected: Bool
+        if case .deviceDisconnected = k { disconnected = true } else { disconnected = false }
+        let right = disconnected
+            ? ceil(("Disconnected" as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 12, weight: .medium)]).width) + 2
+            : 17
+        let glyph: CGFloat = HeadphoneArt.image(for: symbol) == nil ? 20 : 30
+        return WingWidths(leading: 16 + glyph + 7 + label, trailing: 16 + right)
+    }
+
+    /// "AirPods Pro de Moi" reads fine; anything longer is cut, as the island is narrow.
+    static func deviceLabel(_ name: String) -> String {
+        name.count > 22 ? String(name.prefix(21)) + "…" : name
+    }
+
     static func noticeGeometry(_ k: NoticeKind, notch n: CGSize) -> IslandGeometry {
         func wings(_ w: CGFloat) -> IslandGeometry { IslandGeometry(width: n.width + 2 * w, height: n.height, top: 6, bottom: 12) }
         func card(_ w: CGFloat, _ extra: CGFloat) -> IslandGeometry {
@@ -365,8 +389,10 @@ final class IslandModel: ObservableObject {
         switch k {
         case .charging: return wings(88)
         case .lowBattery, .lowPower: return card(104, 46)
-        case .deviceConnected: return wings(70)
-        case .deviceDisconnected: return wings(86)
+        case .deviceConnected(let name, _, _), .deviceDisconnected(let name, _):
+            let w = deviceWings(k, name: name)
+            return IslandGeometry(
+                width: n.width + w.leading + w.trailing, height: n.height, top: 6, bottom: 12, offset: (w.trailing - w.leading) / 2)
         case .focus: return wings(44)
         case .event: return card(120, 52)
         case .unlocked: return wings(34)

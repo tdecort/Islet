@@ -13,6 +13,9 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 lipo -create "$BIN" .build/x86_64-apple-macosx/release/Islet -output "$APP/Contents/MacOS/Islet"
 
+# The AirPods Pro 3D model shown when AirPods connect (see HeadphoneArt.swift).
+cp -R Resources/AirPodsPro3 "$APP/Contents/Resources/"
+
 # System Now Playing bridge, loaded by /usr/bin/perl at runtime (see NowPlayingHelper.m).
 clang -dynamiclib -fobjc-arc -O2 -mmacosx-version-min=14.0 -arch arm64 -arch x86_64 -framework Foundation \
     Helpers/NowPlayingHelper.m -o "$APP/Contents/Resources/IsletNowPlaying.dylib"

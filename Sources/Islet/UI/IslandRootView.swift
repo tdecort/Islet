@@ -240,6 +240,44 @@ struct AICompact: View {
     }
 }
 
+/// A device's picture: AirPods Pro in 3D, turning into place like on iPhone, AirPods Max
+/// as Apple draws them; the SF Symbol for everything else.
+struct DeviceGlyph: View {
+    let symbol: String
+    var dimmed = false
+    /// Show the resting pose at once, without the turn.
+    var still = false
+    @State private var appeared = Date()
+
+    var body: some View {
+        Group {
+            if let turn = HeadphoneArt.turn(for: symbol) {
+                if still || SnapshotRenderer.isRendering {
+                    frame(turn.still)
+                } else {
+                    TimelineView(.animation) { ctx in
+                        let p = min(1, ctx.date.timeIntervalSince(appeared) / turn.duration)
+                        frame(turn.frames[Int((p * Double(turn.frames.count - 1)).rounded())])
+                    }
+                }
+            } else if let art = HeadphoneArt.image(for: symbol) {
+                frame(art)
+            } else {
+                Image(systemName: symbol).font(.island(15, .medium))
+                    .foregroundStyle(.white)
+                    .symbolEffect(.bounce, value: symbol)
+                    .frame(width: 20)
+            }
+        }
+        .opacity(dimmed ? 0.55 : 1)
+        .onAppear { appeared = Date() }
+    }
+
+    private func frame(_ image: NSImage) -> some View {
+        Image(nsImage: image).resizable().interpolation(.high).aspectRatio(contentMode: .fit).frame(width: 30, height: 30)
+    }
+}
+
 /// The charging mark of the folded island.
 struct ChargingBolt: View {
     var body: some View {
@@ -461,10 +499,12 @@ private struct NoticeView: View {
                 Text(on ? "On" : "Off")
             }
 
-        case .deviceConnected(_, let symbol, let battery):
+        case .deviceConnected(let name, let symbol, let battery):
             Wings(notch: n, inset: 6) {
-                Image(systemName: symbol).font(.island(15, .medium)).foregroundStyle(.white)
-                    .symbolEffect(.bounce, value: symbol)
+                HStack(spacing: 7) {
+                    DeviceGlyph(symbol: symbol)
+                    Text(IslandModel.deviceLabel(name)).font(.island(12.5, .semibold)).foregroundStyle(.white).lineLimit(1)
+                }
             } trailing: {
                 if let level = battery.lowest {
                     ProgressRing(progress: Double(level) / 100, tint: level <= 20 ? .red : .green, lineWidth: 2.6)
@@ -473,13 +513,19 @@ private struct NoticeView: View {
                     Image(systemName: "checkmark.circle.fill").font(.island(15)).foregroundStyle(.green)
                 }
             }
+            .environment(\.wingWidths, IslandModel.deviceWings(kind, name: name))
 
-        case .deviceDisconnected(_, let symbol):
+        case .deviceDisconnected(let name, let symbol):
             Wings(notch: n, inset: 6) {
-                Image(systemName: symbol).font(.island(15, .medium)).foregroundStyle(.white.opacity(0.55))
+                HStack(spacing: 7) {
+                    DeviceGlyph(symbol: symbol, dimmed: true, still: true)
+                    Text(IslandModel.deviceLabel(name)).font(.island(12.5, .semibold)).foregroundStyle(.white.opacity(0.55))
+                        .lineLimit(1)
+                }
             } trailing: {
                 Text("Disconnected").font(.island(12, .medium)).foregroundStyle(.white.opacity(0.55))
             }
+            .environment(\.wingWidths, IslandModel.deviceWings(kind, name: name))
 
         case .focus(_, let symbol, let tint, let active):
             // The mode's own symbol says which Focus it is; colour says on, grey says off.

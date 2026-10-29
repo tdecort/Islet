@@ -41,6 +41,7 @@ final class Services {
         gemini.onDone = agentDone
         session.onUnlock = { if Prefs.bool(Prefs.unlockAnimation) { notify(.unlocked) } }
 
+        HeadphoneArt.prewarm()
         audio.start()
         hud.start()
         nowPlaying.start()

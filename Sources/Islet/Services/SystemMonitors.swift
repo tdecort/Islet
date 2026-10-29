@@ -1,3 +1,4 @@
+import OSLog
 import AppKit
 import CoreBluetooth
 import IOBluetooth
@@ -101,18 +102,26 @@ final class BatteryMonitor: ObservableObject {
 
 // MARK: - Bluetooth
 
+private let bluetoothLog = Logger(subsystem: "app.islet.Islet", category: "bluetooth")
+
 /// Bluetooth connect / disconnect. AirPods expose left, right and case levels through
 /// IOBluetoothDevice selectors that are probed before use.
 final class BluetoothMonitor: NSObject, CBCentralManagerDelegate {
     var onNotice: ((NoticeKind) -> Void)?
     private var connectNote: IOBluetoothUserNotification?
-    private var startedAt = Date()
     private var central: CBCentralManager?
+    /// Devices already connected when Islet started listening: the registration replays
+    /// them, and they are not news.
+    private var connectedAtStart = Set<String>()
+    /// Last announcement per device: one connection can be reported more than once.
+    private var lastConnect: [String: Date] = [:]
+    private var lastDisconnect: [String: Date] = [:]
 
     /// IOBluetooth blocks its calling thread until Bluetooth access is decided, and the
     /// permission prompt itself needs the main thread. So access is requested first,
     /// asynchronously, through CoreBluetooth; IOBluetooth is touched only once granted.
     func start() {
+        bluetoothLog.notice("bluetooth access: \(CBCentralManager.authorization.rawValue, privacy: .public)")
         switch CBCentralManager.authorization {
         case .allowedAlways:
             register()
@@ -131,14 +140,18 @@ final class BluetoothMonitor: NSObject, CBCentralManagerDelegate {
 
     private func register() {
         guard connectNote == nil else { return }
-        startedAt = Date()
+        connectedAtStart = Set(((IOBluetoothDevice.pairedDevices() as? [IOBluetoothDevice]) ?? []).filter { $0.isConnected() }.compactMap(\.addressString))
         connectNote = IOBluetoothDevice.register(forConnectNotifications: self, selector: #selector(connected(_:device:)))
     }
 
     @objc private func connected(_ note: IOBluetoothUserNotification, device: IOBluetoothDevice) {
         device.register(forDisconnectNotification: self, selector: #selector(disconnected(_:device:)))
-        // The registration replays already-connected devices: those are not news.
-        guard Date().timeIntervalSince(startedAt) > 3, Prefs.bool(Prefs.bluetoothNotify) else { return }
+        bluetoothLog.notice("connected: \(device.name ?? "?", privacy: .public) as \(Self.symbol(for: device), privacy: .public)")
+        let address = device.addressString ?? device.name ?? "?"
+        if connectedAtStart.remove(address) != nil { return }
+        if let last = lastConnect[address], Date().timeIntervalSince(last) < 5 { return }
+        lastConnect[address] = Date()
+        guard Prefs.bool(Prefs.bluetoothNotify) else { return }
         // Battery levels arrive a moment after the link comes up.
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
             let battery = DeviceBattery(
@@ -146,15 +159,24 @@ final class BluetoothMonitor: NSObject, CBCentralManagerDelegate {
                 right: Self.level(device, "batteryPercentRight"),
                 caseLevel: Self.level(device, "batteryPercentCase"),
                 single: Self.level(device, "batteryPercentSingle"))
-            self?.onNotice?(.deviceConnected(name: device.name ?? "Device", symbol: Self.symbol(for: device), battery: battery))
+            let symbol = Self.symbol(for: device)
+            guard symbol != Self.unknownSymbol else { return }
+            self?.onNotice?(.deviceConnected(name: device.name ?? "Device", symbol: symbol, battery: battery))
         }
     }
 
     @objc private func disconnected(_ note: IOBluetoothUserNotification, device: IOBluetoothDevice) {
         note.unregister()
+        bluetoothLog.notice("disconnected: \(device.name ?? "?", privacy: .public)")
+        let address = device.addressString ?? device.name ?? "?"
+        connectedAtStart.remove(address)
+        if let last = lastDisconnect[address], Date().timeIntervalSince(last) < 5 { return }
+        lastDisconnect[address] = Date()
         guard Prefs.bool(Prefs.bluetoothNotify) else { return }
+        let symbol = Self.symbol(for: device)
+        guard symbol != Self.unknownSymbol else { return }
         DispatchQueue.main.async { [weak self] in
-            self?.onNotice?(.deviceDisconnected(name: device.name ?? "Device", symbol: Self.symbol(for: device)))
+            self?.onNotice?(.deviceDisconnected(name: device.name ?? "Device", symbol: symbol))
         }
     }
 
@@ -171,14 +193,27 @@ final class BluetoothMonitor: NSObject, CBCentralManagerDelegate {
         if name.contains("beats") { return "beats.headphones" }
         if name.contains("keyboard") || name.contains("clavier") { return "keyboard" }
         if name.contains("trackpad") { return "rectangle.and.hand.point.up.left" }
-        if name.contains("mouse") || name.contains("souris") { return "magicmouse" }
+        if name.contains("magic mouse") { return "magicmouse" }
+        if name.contains("mouse") || name.contains("souris") { return "computermouse" }
         switch d.deviceClassMajor {
         case UInt32(kBluetoothDeviceClassMajorAudio): return "headphones"
-        case UInt32(kBluetoothDeviceClassMajorPeripheral): return "keyboard"
+        case UInt32(kBluetoothDeviceClassMajorPeripheral):
+            // The minor class says keyboard, pointing device (mouse, trackpad) or both.
+            let minor = d.deviceClassMinor
+            if minor & UInt32(kBluetoothDeviceClassMinorPeripheral1Pointing) != 0,
+                minor & UInt32(kBluetoothDeviceClassMinorPeripheral1Keyboard) == 0
+            {
+                return "computermouse"
+            }
+            return "keyboard"
         case UInt32(kBluetoothDeviceClassMajorPhone): return "iphone"
-        default: return "dot.radiowaves.left.and.right"
+        default: return unknownSymbol
         }
     }
+
+    /// A device of no known kind: often one connecting by itself in the background
+    /// (Continuity, a watch), so Islet doesn't announce it.
+    static let unknownSymbol = "dot.radiowaves.left.and.right"
 }
 
 // MARK: - Focus
