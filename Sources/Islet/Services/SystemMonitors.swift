@@ -149,6 +149,22 @@ final class BluetoothMonitor: NSObject, CBCentralManagerDelegate {
         bluetoothLog.notice("connected: \(device.name ?? "?", privacy: .public) as \(Self.symbol(for: device), privacy: .public)")
         let address = device.addressString ?? device.name ?? "?"
         if connectedAtStart.remove(address) != nil { return }
+        announce(device)
+    }
+
+    /// AirPods with automatic switching often stay linked to the Mac: "connecting" them
+    /// only moves the sound over, with no new Bluetooth link. So the sound arriving on a
+    /// Bluetooth device counts as a connection too.
+    func outputSwitched(to name: String, bluetooth: Bool) {
+        bluetoothLog.notice("sound moved to \(name, privacy: .public), bluetooth \(bluetooth, privacy: .public)")
+        guard bluetooth, connectNote != nil,
+            let device = ((IOBluetoothDevice.pairedDevices() as? [IOBluetoothDevice]) ?? []).first(where: { $0.name == name && $0.isConnected() })
+        else { return }
+        announce(device)
+    }
+
+    private func announce(_ device: IOBluetoothDevice) {
+        let address = device.addressString ?? device.name ?? "?"
         if let last = lastConnect[address], Date().timeIntervalSince(last) < 5 { return }
         lastConnect[address] = Date()
         guard Prefs.bool(Prefs.bluetoothNotify) else { return }

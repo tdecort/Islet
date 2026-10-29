@@ -13,6 +13,8 @@ final class SystemAudio: ObservableObject {
 
     /// Called for user-visible changes only (device switches are filtered out).
     var onChange: ((Float, Bool) -> Void)?
+    /// The sound moved to another output: its name, and whether it is a Bluetooth device.
+    var onOutputChange: ((String, Bool) -> Void)?
 
     private var device = AudioDeviceID(0)
     private var lastDeviceSwitch = Date.distantPast
@@ -28,8 +30,10 @@ final class SystemAudio: ObservableObject {
         var defaultAddress = AudioObjectPropertyAddress(
             mSelector: kAudioHardwarePropertyDefaultOutputDevice, mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
         AudioObjectAddPropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject), &defaultAddress, .main) { [weak self] _, _ in
-            self?.lastDeviceSwitch = Date()
-            self?.attach()
+            guard let self else { return }
+            self.lastDeviceSwitch = Date()
+            self.attach()
+            if let name = Self.name(of: self.device) { self.onOutputChange?(name, Self.isBluetooth(self.device)) }
         }
         attach()
     }
@@ -84,6 +88,24 @@ final class SystemAudio: ObservableObject {
         var m = UInt32(on ? 1 : 0)
         AudioObjectSetPropertyData(device, &muteAddress, 0, nil, UInt32(MemoryLayout<UInt32>.size), &m)
         muted = on
+    }
+
+    private static func name(of device: AudioDeviceID) -> String? {
+        var name: Unmanaged<CFString>?
+        var size = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioObjectPropertyName, mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
+        guard AudioObjectGetPropertyData(device, &address, 0, nil, &size, &name) == noErr, let name else { return nil }
+        return name.takeRetainedValue() as String
+    }
+
+    private static func isBluetooth(_ device: AudioDeviceID) -> Bool {
+        var transport = UInt32(0)
+        var size = UInt32(MemoryLayout<UInt32>.size)
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyTransportType, mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
+        AudioObjectGetPropertyData(device, &address, 0, nil, &size, &transport)
+        return transport == kAudioDeviceTransportTypeBluetooth || transport == kAudioDeviceTransportTypeBluetoothLE
     }
 
     private static func defaultOutput() -> AudioDeviceID {

@@ -31,6 +31,7 @@ final class Services {
         }
         battery.onNotice = notify
         bluetooth.onNotice = notify
+        audio.onOutputChange = { [weak self] name, bluetooth in self?.bluetooth.outputSwitched(to: name, bluetooth: bluetooth) }
         focus.onNotice = notify
         calendar.onNotice = notify
         flow.onNotice = notify
