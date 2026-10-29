@@ -110,7 +110,7 @@ Plugged in? A small green bolt sits quietly beside the camera, and shares the st
 
 <img src="docs/images/15-airpods.png" alt="AirPods connected, with battery level">
 
-Your AirPods connect, and they spin into the island in 3D, popping out of their case, battery included. Every other device shows up by name.
+Your AirPods connect, and they spin into the island in 3D, rising out of their case as it drops away, battery included. Every other device shows up by name.
 
 <img src="docs/images/16-charging.png" width="49%" alt="Charging">
 <img src="docs/images/17-low-battery.png" width="49%" alt="Low battery">

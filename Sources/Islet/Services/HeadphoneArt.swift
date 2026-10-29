@@ -28,7 +28,7 @@ enum HeadphoneArt {
         defer { lock.unlock() }
         if let cached = turns[symbol] { return cached }
         guard let frames = renderTurn(), !frames.isEmpty else { return nil }
-        let t = Turn(frames: frames, duration: 1.7)
+        let t = Turn(frames: frames, duration: 1.9)
         turns[symbol] = t
         return t
     }
@@ -56,9 +56,9 @@ enum HeadphoneArt {
         return candidates.compactMap { $0 }.first { FileManager.default.fileExists(atPath: $0.path) }
     }
 
-    /// A full turn that slows down as it lands on a three-quarter view, while the earbuds
-    /// rise out of the case.
-    private static func renderTurn(frameCount: Int = 52, pixels: CGFloat = 132) -> [NSImage]? {
+    /// A full turn that slows down as it lands on a three-quarter view. The earbuds rise
+    /// out of the case, then the case sinks out of frame as the camera closes in on them.
+    private static func renderTurn(frameCount: Int = 58, pixels: CGFloat = 132) -> [NSImage]? {
         guard let url = modelURL, let scene = try? SCNScene(url: url, options: [.convertToYUp: true]),
             let device = MTLCreateSystemDefaultDevice()
         else { return nil }
@@ -98,13 +98,33 @@ enum HeadphoneArt {
         scene.rootNode.addChildNode(fill)
         scene.background.contents = NSColor.clear
 
-        // Both earbuds hang under one node of the model; the case (lid included) is the rest.
+        // Both earbuds hang under one node of the model; the case (lid included) under another.
         let earbuds = model.childNode(withName: "YamPaavUOjSVJHE", recursively: true)
+        let caseNode = model.childNode(withName: "hXJOJrkFTZXXxnW", recursively: true)
         let restingBuds = earbuds?.position
-        // How far down the earbuds sit in the case: stems in their slots, tops showing.
-        // Measured in the model's space, then expressed in the earbuds' parent space,
-        // which the model scales.
-        let sunk = earbuds?.parent?.convertVector(SCNVector3(0, -(hi.y - lo.y) * 0.32, 0), from: model)
+        let restingCase = caseNode?.position
+        let height = hi.y - lo.y
+        // Offsets are measured in the model's space, then expressed in each part's parent
+        // space, which the model scales. The earbuds start down in their slots, tops
+        // showing; the case ends well below the frame.
+        let sunk = earbuds?.parent?.convertVector(SCNVector3(0, -height * 0.32, 0), from: model)
+        let drop = caseNode?.parent?.convertVector(SCNVector3(0, -height * 1.6, 0), from: model)
+
+        // Where the camera ends: close on the earbuds alone, at rest above the case.
+        var budsCenter = SCNVector3(0, 0, 0)
+        var budsRadius = radius
+        if let earbuds {
+            let (bl, bh) = earbuds.boundingBox
+            let a = pivot.convertPosition(bl, from: earbuds), b = pivot.convertPosition(bh, from: earbuds)
+            budsCenter = SCNVector3(0, (a.y + b.y) / 2, 0)
+            budsRadius = Swift.max(abs(b.x - a.x), abs(b.y - a.y), abs(b.z - a.z))
+        }
+        let startEye = SCNVector3(0, radius * 0.25, radius * 2.15)
+        let endEye = SCNVector3(0, budsCenter.y + budsRadius * 0.3, budsRadius * 2.2)
+
+        func mix(_ a: SCNVector3, _ b: SCNVector3, _ k: CGFloat) -> SCNVector3 {
+            SCNVector3(a.x + (b.x - a.x) * k, a.y + (b.y - a.y) * k, a.z + (b.z - a.z) * k)
+        }
 
         let renderer = SCNRenderer(device: device, options: nil)
         renderer.scene = scene
@@ -123,6 +143,17 @@ enum HeadphoneArt {
                 earbuds.position = SCNVector3(
                     restingBuds.x + sunk.x * down, restingBuds.y + sunk.y * down, restingBuds.z + sunk.z * down)
             }
+            // Once the earbuds are out, the case sinks away while the camera closes in on
+            // them, both on the same ease so they move as one.
+            let z = Swift.max(0, Swift.min(1, (t - 0.45) / 0.55))
+            let zoom = CGFloat(z * z * (3 - 2 * z))
+            if let caseNode, let restingCase, let drop {
+                let k = CGFloat(pow(Double(zoom), 1.4))
+                caseNode.position = SCNVector3(
+                    restingCase.x + drop.x * k, restingCase.y + drop.y * k, restingCase.z + drop.z * k)
+            }
+            camera.position = mix(startEye, endEye, zoom)
+            camera.look(at: mix(SCNVector3(0, 0, 0), budsCenter, zoom))
             return renderer.snapshot(atTime: 0, with: CGSize(width: pixels, height: pixels), antialiasingMode: .multisampling4X)
         }
     }
